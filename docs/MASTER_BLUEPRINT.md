@@ -1,8 +1,8 @@
-# inFluentia PRO - Master Blueprint v4.1
+# inFluentia PRO - Master Blueprint v5.0
 
 > **The Scalable Blueprint** - De concepto educativo a herramienta de rendimiento ejecutivo.
 > Documento maestro que consolida arquitectura, decisiones, y hoja de ruta.
-> Ultima actualizacion: 26 febrero 2026 (v4.1 — refleja estado real del codigo: escrito pero pendiente de primera compilacion)
+> Ultima actualizacion: 3 marzo 2026 (v5.0 — refleja auditoria de production readiness, cambio a credit packs, i18n ES/PT, ErrorBoundary, flujo simplificado a 8 pasos, debugging de blank screen en progreso)
 
 ---
 
@@ -36,7 +36,7 @@ en ingles, disenado para el mercado de nearshoring en Latinoamerica.
 - **Target**: Profesionales tech/ejecutivos en Mexico y Colombia que necesitan
   comunicarse con clientes y equipos en EE.UU.
 - **Diferenciador**: Confrontacion realista con IA + feedback accionable + practica
-  de pronunciacion — todo en un flujo de 11 pasos internos.
+  de pronunciacion — todo en un flujo de 8 pasos internos.
 - **Metrica North Star**: Usuarios que completan 3+ sesiones en los primeros 7 dias.
 
 ---
@@ -65,7 +65,8 @@ en ingles, disenado para el mercado de nearshoring en Latinoamerica.
 |---------|-----|
 | `motion` (Motion) | Animaciones y transiciones entre pantallas |
 | `lucide-react` | Iconografia consistente |
-| `@supabase/supabase-js` | Cliente Supabase (auth real cuando `USE_MOCK = false`) |
+| `@supabase/supabase-js` v2.98 | Cliente Supabase (auth real cuando `USE_MOCK = false`) |
+| `canvas-confetti` | Celebracion de confetti en CreditUpsellModal post-compra |
 
 > **Limpieza realizada (26 feb 2026):** Se eliminaron ~43 paquetes innecesarios del `package.json` (MUI, Radix UI, shadcn dependencies, react-dnd, react-slick, recharts, etc.). Eran residuos del scaffolding inicial de shadcn/ui. Los archivos de `ui/` siguen existiendo (son protegidos del sistema) pero son inertes — nada los importa y Vite los ignora.
 
@@ -86,7 +87,7 @@ en ingles, disenado para el mercado de nearshoring en Latinoamerica.
 CREATE TABLE profiles (
   id             uuid PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
   market_focus   text CHECK (market_focus IN ('mexico', 'colombia')),
-  plan           text DEFAULT 'free' CHECK (plan IN ('free', 'per-session', 'monthly', 'quarterly')),
+  plan           text DEFAULT 'free' CHECK (plan IN ('free', 'per-session')),
   plan_status    text DEFAULT 'active' CHECK (plan_status IN ('active', 'trial', 'expired')),
   free_session_used boolean DEFAULT false,
   stats          jsonb DEFAULT '{}',
@@ -161,6 +162,30 @@ CREATE TABLE audit_logs (
 );
 ```
 
+### 3.6 Tablas de creditos (pay-per-session)
+
+```sql
+CREATE TABLE credit_purchases (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  pack            text NOT NULL CHECK (pack IN ('session_1', 'session_3', 'session_5')),
+  credits_added   integer NOT NULL,
+  amount_usd      numeric(10,2) NOT NULL,
+  payment_provider text NOT NULL CHECK (payment_provider IN ('mercadopago', 'stripe')),
+  payment_id      text,
+  status          text DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+  created_at      timestamptz DEFAULT now()
+);
+
+CREATE TABLE credit_balances (
+  user_id         uuid PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  credits_remaining integer DEFAULT 0,
+  credits_total_purchased integer DEFAULT 0,
+  last_purchase_at timestamptz,
+  updated_at      timestamptz DEFAULT now()
+);
+```
+
 > Schema completo con RLS, indexes y trigger: ver `/docs/FASE1_MIGRATION.sql`
 
 ---
@@ -180,8 +205,9 @@ CREATE TABLE audit_logs (
 |     Service Registry            |
 |     /src/services/index.ts      |
 |                                 |
-|  USE_MOCK = true (forzado)      |
+|  USE_MOCK = env-based auto-detect|
 |  ADAPTER_MODE = { per service } |
+|  Defensive try-catch wrappers   |
 +--------+------------------------+
          |
     +----+----+
@@ -193,20 +219,27 @@ CREATE TABLE audit_logs (
 ```
 
 **Switching:**
-- `USE_MOCK = true` → TODOS los servicios usan mock (estado actual)
-- `USE_MOCK = false` → Cada servicio mira su `ADAPTER_MODE` entry
-- Auto-detect: Si `VITE_SUPABASE_URL` no esta configurado, fallback a mock
+- `VITE_USE_MOCK=true` → Fuerza TODOS los servicios a mock
+- `VITE_USE_MOCK=false` → Cada servicio mira su `ADAPTER_MODE` entry
+- Auto-detect (default): Si `VITE_SUPABASE_URL` no esta configurado → mock; si esta configurado → per-service switching
 
-**Service instances (singletons exportados):**
+**Defensive initialization (v5.0):**
+- `createAuthService()` tiene try-catch: si `SupabaseAuthService` constructor falla → fallback a `MockAuthService`
+- Los 7 singletons se crean dentro de try-catch global: si CUALQUIER servicio falla → TODOS caen a mock
+- Diagnostic `console.log` envuelto en try-catch
+
+**Service instances (singletons exportados via `let` + `export {}`):**
 
 ```typescript
-export const authService: IAuthService;
-export const conversationService: IConversationService;
-export const feedbackService: IFeedbackService;
-export const speechService: ISpeechService;
-export const userService: IUserService;
-export const paymentService: IPaymentService;
-export const spacedRepetitionService: ISpacedRepetitionService;
+export {
+  authService,         // IAuthService
+  conversationService, // IConversationService
+  feedbackService,     // IFeedbackService
+  speechService,       // ISpeechService
+  userService,         // IUserService
+  paymentService,      // IPaymentService
+  spacedRepetitionService, // ISpacedRepetitionService
+};
 ```
 
 ---
@@ -219,7 +252,7 @@ export const spacedRepetitionService: ISpacedRepetitionService;
 interface IAuthService {
   signIn(provider: AuthProvider): Promise<User>;
   signOut(): Promise<void>;
-  getCurrentUser(): Promise<User | null>;
+  getCurrentUser(): User | null;
   onAuthStateChanged(callback: (user: User | null) => void): () => void;
 }
 ```
@@ -276,11 +309,13 @@ interface IUserService {
 
 ```typescript
 interface IPaymentService {
-  createCheckout(uid: string, plan: PaymentPlan): Promise<CheckoutResult>;
-  getSubscription(uid: string): Promise<SubscriptionInfo>;
+  createCheckout(uid: string, pack: CreditPack): Promise<CheckoutResult>;
+  getCreditsBalance(uid: string): Promise<{ credits: number; freeSessionAvailable: boolean }>;
   cancelSubscription(uid: string): Promise<void>;
 }
 ```
+
+> **Cambio v5.0:** `createCheckout` ahora recibe `CreditPack` (no `PaymentPlan`). `getSubscription` renombrado a `getCreditsBalance`.
 
 ### 5.7 ISpacedRepetitionService (6 metodos)
 
@@ -312,7 +347,7 @@ class ServiceError extends Error {
 }
 ```
 
-### 5 dominios de error
+### 6 dominios de error (v5.0: +1 code)
 
 | Dominio | Clase | Codes |
 |---------|-------|-------|
@@ -320,7 +355,7 @@ class ServiceError extends Error {
 | Conversation | `ConversationError` | SESSION_CREATION_FAILED, AI_TIMEOUT, AI_RATE_LIMIT, AI_CONTEXT_OVERFLOW, SESSION_NOT_FOUND, TURN_PROCESSING_FAILED, CONVERSATION_UNKNOWN |
 | Feedback | `FeedbackError` | ANALYSIS_TIMEOUT, ANALYSIS_FAILED, SCRIPT_GENERATION_FAILED, SUMMARY_FAILED, FEEDBACK_UNKNOWN |
 | Speech | `SpeechError` | MICROPHONE_DENIED, MICROPHONE_NOT_FOUND, STT_NETWORK_ERROR, STT_TIMEOUT, STT_QUOTA_EXCEEDED, TTS_NETWORK_ERROR, TTS_TIMEOUT, PRONUNCIATION_TIMEOUT, PRONUNCIATION_FAILED, SPEECH_UNKNOWN |
-| Payment | `PaymentError` | CHECKOUT_CREATION_FAILED, PAYMENT_DECLINED, PAYMENT_PENDING, PAYMENT_EXPIRED, WEBHOOK_NOT_RECEIVED, SUBSCRIPTION_CANCEL_FAILED, PAYMENT_UNKNOWN |
+| Payment | `PaymentError` | CHECKOUT_CREATION_FAILED, PAYMENT_DECLINED, PAYMENT_PENDING, PAYMENT_EXPIRED, WEBHOOK_NOT_RECEIVED, **CREDITS_EXHAUSTED** *(nuevo v5.0)*, SUBSCRIPTION_CANCEL_FAILED, PAYMENT_UNKNOWN |
 
 ### Utilidades
 
@@ -333,6 +368,16 @@ class ServiceError extends Error {
 
 Agregar `?simulate_errors=true` a la URL para activar errores aleatorios en todos los mock adapters.
 
+### ErrorBoundary (nuevo v5.0)
+
+`ErrorBoundary.tsx` envuelve todo el `App` component. Atrapa errores de render no capturados y muestra un fallback con:
+- Error message y stack trace
+- Component stack (React)
+- Boton "Recargar App"
+- Branding inFluentia PRO
+
+Esto evita la pantalla blanca cuando un componente crashea durante render.
+
 ---
 
 ## 7. Mock Adapters
@@ -341,12 +386,12 @@ Agregar `?simulate_errors=true` a la URL para activar errores aleatorios en todo
 
 | Adapter | Archivo | Comportamiento |
 |---------|---------|----------------|
-| `MockAuthService` | `auth.mock.ts` | Google/LinkedIn sign-in simulado (~1s delay), `onAuthStateChanged` callback |
+| `MockAuthService` | `auth.mock.ts` | Google/LinkedIn sign-in simulado (~300ms delay), `onAuthStateChanged` callback |
 | `MockConversationService` | `conversation.mock.ts` | `prepareSession` con prompt assembler real, `processTurn` con mensajes hardcoded por scenario |
 | `MockFeedbackService` | `feedback.mock.ts` | Strengths, opportunities, script sections, completed phrases, results summary |
 | `MockSpeechService` | `speech.mock.ts` | Transcripciones por scenario, TTS simulado (delay basado en text length), scoring con progresion |
-| `MockUserService` | `user.mock.ts` | Profile, plan, practice history, power phrases |
-| `MockPaymentService` | `payment.mock.ts` | Checkout URLs fake, subscription mock |
+| `MockUserService` | `user.mock.ts` | Profile, plan con creditos, practice history, power phrases, `canStartSession` con validacion de creditos |
+| `MockPaymentService` | `payment.mock.ts` | Checkout URLs fake, balance de creditos mock, celebracion confetti |
 | `MockSpacedRepetitionService` | `spaced-repetition.mock.ts` | Cards, today's review, attempt scoring, interval progression |
 
 ### 11 archivos de datos mock
@@ -376,21 +421,25 @@ Agregar `?simulate_errors=true` a la URL para activar errores aleatorios en todo
 ### 8.1 Mapa de navegacion
 
 ```
-Landing Page (#)
+Landing Page (#) — i18n ES/PT
   |
   +-- PracticeWidget (escenario input)
   |     |
   |     +-- PracticeSetupModal (inline, Endowed Progress + Loss Aversion)
   |           |
-  |           +-- AuthModal (Google/LinkedIn)
+  |           +-- AuthModal (Google/LinkedIn) — i18n via LandingLangContext
   |                 |
-  |                 +-- [registro] → PracticeSessionPage (#practice-session)
-  |                 +-- [login]    → Dashboard (#dashboard)
+  |                 +-- LanguageTransitionModal (post-auth, ES/PT → EN)
+  |                 |     |
+  |                 |     +-- [registro] → PracticeSessionPage (#practice-session)
+  |                 |     +-- [login]    → Dashboard (#dashboard)
+  |                 |
+  |                 +-- (sin modal) → directo si ya autenticado
   |
   +-- AuthModal (header CTAs)
-        +-- [login] → Dashboard
+        +-- [login] → LanguageTransitionModal → Dashboard
 
-PracticeSessionPage (#practice-session) — 11 internal steps:
+PracticeSessionPage (#practice-session) — 8 internal steps (simplified in v5.0):
   |
   1. strategy           → StrategyBuilder (3 value pillars, stepper horizontal)
   2. extra-context       → ExtraContextScreen (skippable: escribir, URL, archivo)
@@ -399,20 +448,15 @@ PracticeSessionPage (#practice-session) — 11 internal steps:
   5. practice            → VoicePractice + ArenaSystem (Support → Guidance → Challenge)
   6. analyzing           → AnalyzingScreen(variant="feedback")
   7. conversation-feedback → ConversationFeedback (strengths + opportunities)
-  8. shadowing           → ShadowingPractice (3 phrases, record + score)
-  9. analyzing-results   → AnalyzingScreen(variant="results")
-  10. session-recap      → SessionRecap (pronunciation notes, cheat sheet download)
-  11. mindset            → MindsetPulseScreen (3-phase questionnaire + coaching)
+  8. session-recap       → SessionReport (comprehensive report with all results)
   |
   +→ Dashboard (#dashboard)
 
 Dashboard (#dashboard):
   |
-  +-- 3 dimensions: Comunicacion, Pronunciacion, Mentalidad (SVG gauges)
-  +-- ProfileCompletionBanner (industry, position, seniority)
+  +-- Credit balance display + CreditUpsellModal
+  +-- handleStartSession() validates credits via userService.canStartSession()
   +-- Practice History (recent sessions with before/after highlights)
-  +-- Spaced Repetition widget (today's SR cards)
-  +-- Power Phrases collection
   +-- "Nueva practica" → Landing
   +-- "Ver historial" → Practice History (#practice-history)
 
@@ -420,6 +464,8 @@ Practice History (#practice-history):
   +-- Full history list with filtering
   +-- "Volver" → Dashboard
 ```
+
+> **Cambio v5.0:** El flujo se simplifico de 11 a 8 steps. Se eliminaron: `shadowing`, `analyzing-results`, `mindset`. El `SessionReport` ahora consolida toda la informacion post-sesion en una sola pantalla.
 
 ### 8.2 Arena System (3 fases de andamiaje progresivo)
 
@@ -433,11 +479,29 @@ La Pantalla 5 (Voice Practice) incluye un sistema de andamiaje que ajusta la dif
 
 Componentes: `PhaseIndicator`, `PhaseTransitionToast`, `TrySayingHint`, `ArenaProgressBar`, `useArenaPhase` hook.
 
-### 8.3 Mindset integrado en loaders
+### 8.3 i18n System (nuevo v5.0)
 
-Los 3 `AnalyzingScreen` variants (script, feedback, results) incluyen coaching de mindset durante la espera, convirtiendo tiempo muerto en contenido de valor.
+La Landing Page soporta internacionalizacion completa ES/PT:
 
-### 8.4 Design System
+| Archivo | Descripcion |
+|---------|-------------|
+| `landing-i18n.ts` (~668 lineas) | Define `LandingCopy` interface + copias completas ES y PT |
+| `LandingLangContext.tsx` | React Context + hook `useLandingCopy()` para acceder a copias |
+| `LanguageTransitionModal.tsx` | Modal post-auth que comunica transicion de idioma (ES/PT → EN) |
+
+Componentes que consumen i18n: `LandingPage`, `PracticeWidget`, `AuthModal`, `HowItWorksTabs`, `CreditUpsellModal`.
+
+### 8.4 Credit Upsell Flow (nuevo v5.0)
+
+Cuando un usuario sin creditos intenta iniciar una sesion:
+
+1. `DashboardPage.handleStartSession()` llama `userService.canStartSession(uid)`
+2. Si `allowed: false` → abre `CreditUpsellModal`
+3. `CreditUpsellModal` muestra grid de 3 packs con badges de descuento
+4. Click en pack → `paymentService.createCheckout(uid, pack)`
+5. Post-compra exitosa → celebracion de confetti (`canvas-confetti`) + creditos actualizados
+
+### 8.5 Design System
 
 Color primario: `#0f172b` (navy)
 Verde pastel: `#DBEDDF` (definido en `COLORS` de shared/index.tsx)
@@ -469,7 +533,7 @@ Internal pages layout: BrandLogo header, PastelBlobs background, MiniFooter
 - Gemini 1.5 Flash → overallSentiment + pronunciationNotes + improvementAreas
 
 ### 9.7 `webhook-payment`
-- Mercado Pago/Stripe webhook → confirma pago → actualiza plan en profiles
+- Mercado Pago/Stripe webhook → confirma pago → actualiza creditos en `credit_balances`
 
 ---
 
@@ -484,12 +548,35 @@ Validado: Azure Speech REST API funciona desde Deno Edge Functions sin SDK pesad
 
 ## 11. Modelo de Negocio
 
-| Plan | Precio | Features |
-|------|--------|----------|
-| **Free** | $0 | 1 sesion completa (11 pasos), GPT-4o-mini, lifetime |
-| **Per-session** | $4.99 | GPT-4o, single session |
-| **Monthly** | $19.99/mes | GPT-4o, unlimited sessions + SR + dashboard |
-| **Quarterly** | $44.99 ($14.99/mes) | GPT-4o, unlimited + SR + dashboard |
+### Pay-per-Session Credit Packs (v5.0 — sin suscripciones)
+
+| Pack | Precio | Per Session | Descuento |
+|------|--------|-------------|-----------|
+| **1 sesion** | $4.99 | $4.99 | — |
+| **3 sesiones** | $12.99 | $4.33 | 13% |
+| **5 sesiones** | $19.99 | $4.00 | 20% |
+
+### Primera sesion gratuita
+
+- Sesion completa (8 pasos) sin feature gating
+- GPT-4o-mini para sesion free, GPT-4o para sesiones pagadas
+- Despues de la sesion free: `CreditUpsellModal` con los 3 packs
+
+### Tipos en codigo
+
+```typescript
+type CreditPack = "session_1" | "session_3" | "session_5";
+
+const CREDIT_PACK_DETAILS: Record<CreditPack, {
+  sessions: number; price: number; perSession: number; discount: number;
+}> = {
+  session_1: { sessions: 1, price: 4.99, perSession: 4.99, discount: 0 },
+  session_3: { sessions: 3, price: 12.99, perSession: 4.33, discount: 13 },
+  session_5: { sessions: 5, price: 19.99, perSession: 4.00, discount: 20 },
+};
+```
+
+> **Cambio v5.0:** Se eliminaron los planes Monthly ($19.99/mes) y Quarterly ($44.99). El modelo se simplifico a credit packs puros. Todo el copy de "suscripcion" fue reemplazado en `landing-i18n.ts`, `DashboardPage`, `CreditUpsellModal`, y mock adapters.
 
 ---
 
@@ -499,6 +586,7 @@ Validado: Azure Speech REST API funciona desde Deno Edge Functions sin SDK pesad
 - **Early adopters**: Product managers, engineers, sales leads en empresas tech que hacen nearshoring
 - **Canal de adquisicion**: LinkedIn ads + content marketing en espanol
 - **Regional context**: El prompt system tiene bloques especificos para Mexico y Colombia (vocabulario, cultura de negocios)
+- **Idiomas de la landing**: Espanol y Portugues (i18n completo)
 
 ---
 
@@ -526,7 +614,7 @@ Score >= 85  → MASTERY → Advance, no SR card needed
 Ver `WORKPLAN_v3.md` para el plan detallado por fases.
 
 Resumen:
-- **Fase 0** (actual): Prototipo mock escrito, pendiente primera compilacion
+- **Fase 0** (en progreso): Prototipo mock escrito, auditoria de production readiness completada, debugging de blank screen en curso
 - **Fase 1**: Auth + Schema (Supabase)
 - **Fase 2**: Conversation Engine (GPT-4o + ElevenLabs)
 - **Fase 3**: Feedback + Pronunciation (Gemini + Azure)
@@ -540,19 +628,29 @@ Resumen:
 
 | Archivo | Lineas | Descripcion |
 |---------|--------|-------------|
-| `App.tsx` | ~293 | Entry point, hash routing, auth listener, flow state |
-| `LandingPage.tsx` | ~800+ | Landing con hero, PracticeWidget embed, pricing, FAQ |
-| `AuthModal.tsx` | ~200+ | Modal de auth Google/LinkedIn, modo login/registro |
-| `PracticeWidget.tsx` | ~650+ | Input de escenario + PracticeSetupModal inline |
-| `StrategyBuilder.tsx` | ~583 | 3 value pillars, stepper horizontal, framework tooltips |
-| `PracticeSessionPage.tsx` | ~2891 | Orchestrator de 11 steps: strategy→mindset |
-| `DashboardPage.tsx` | ~1000+ | Dashboard holistico, 3 dimensiones, SVG gauges, SR |
-| `PracticeHistoryPage.tsx` | ~400+ | Lista de sesiones pasadas con before/after |
-| `DesignSystemPage.tsx` | ~1703 | Design system showcase (herramienta interna) |
-| `LoadingScreen.tsx` | ~100+ | Pantalla de carga inicial |
-| `MindsetCoachCard.tsx` | ~200+ | Card de coaching de mindset |
-| `HowItWorksTabs.tsx` | ~200+ | Tabs de "Como funciona" en Landing |
-| `HomeBPage.tsx` | ~100+ | Variante de home (no en uso activo) |
+| `App.tsx` | ~329 | Entry point, hash routing, auth listener, flow state, ErrorBoundary wrapper |
+| `LandingPage.tsx` | ~535 | Landing con hero, PracticeWidget embed, pricing, FAQ, i18n ES/PT |
+| `AuthModal.tsx` | ~280 | Modal de auth Google/LinkedIn, modo login/registro, i18n |
+| `PracticeWidget.tsx` | ~749 | Input de escenario + PracticeSetupModal inline |
+| `StrategyBuilder.tsx` | ~524 | 3 value pillars, stepper horizontal, framework tooltips |
+| `PracticeSessionPage.tsx` | ~1339 | Orchestrator de 8 steps: strategy→session-recap |
+| `SessionReport.tsx` | ~664 | Reporte comprehensivo post-sesion (reemplaza Session Recap + Shadowing) |
+| `DashboardPage.tsx` | ~431 | Dashboard con credit balance, start session con validacion de creditos |
+| `PracticeHistoryPage.tsx` | ~371 | Lista de sesiones pasadas con before/after |
+| `CreditUpsellModal.tsx` | ~507 | Modal de compra de credit packs, confetti, i18n ES/PT |
+| `LanguageTransitionModal.tsx` | ~123 | Modal post-auth de transicion de idioma |
+| `ErrorBoundary.tsx` | ~181 | Class component que atrapa errores de render, muestra fallback con diagnostico |
+| `HowItWorksTabs.tsx` | ~512 | Tabs de "Como funciona" en Landing, i18n |
+| `LoadingScreen.tsx` | ~101 | Pantalla de carga inicial |
+| `SessionProgressBar.tsx` | ~142 | Progress bar de los 8 steps de la sesion |
+| `DesignSystemPage.tsx` | ~1680 | Design system showcase (herramienta interna) |
+
+### Frontend — i18n (`/src/app/components/`)
+
+| Archivo | Lineas | Descripcion |
+|---------|--------|-------------|
+| `landing-i18n.ts` | ~668 | Interface `LandingCopy` + copias completas ES y PT |
+| `LandingLangContext.tsx` | ~13 | React Context + `useLandingCopy()` hook |
 
 ### Frontend — Arena (`/src/app/components/arena/`)
 
@@ -565,9 +663,10 @@ Resumen:
 
 | Archivo | Descripcion |
 |---------|-------------|
-| `index.tsx` (~1211 lineas) | COLORS, BrandLogo, SectionHeading, CheckIcon, XIcon, DotPattern, PastelBlobs, MiniFooter, PricingCard, PageTitleBlock, AccuracyRing, HighlightWithTooltip, StageBadge, SubtleTextLink, RecordButton, RecordingWaveformBars, RecordingTimer, AnalyzingScreen, highlightEnglish, renderStressedPhrase, stripStressMarkers |
+| `index.tsx` (~1254 lineas) | COLORS, BrandLogo, SectionHeading, CheckIcon, XIcon, DotPattern, PastelBlobs, MiniFooter, PricingCard, PageTitleBlock, AccuracyRing, HighlightWithTooltip, StageBadge, SubtleTextLink, RecordButton, RecordingWaveformBars, RecordingTimer, AnalyzingScreen, highlightEnglish, renderStressedPhrase, stripStressMarkers |
 | `ServiceErrorBanner.tsx` | Banner adaptativo que muestra errores del service layer |
 | `ProfileCompletionBanner.tsx` | Banner de completar perfil (industry, position, seniority) |
+| `session-types.ts` | Step type compartido (8 valores) para PracticeSessionPage y SessionProgressBar |
 
 ### Frontend — Hooks (`/src/app/hooks/`)
 
@@ -577,12 +676,12 @@ Resumen:
 
 ### Service Layer (`/src/services/`)
 
-| Archivo | Descripcion |
-|---------|-------------|
-| `index.ts` | Registry: USE_MOCK + ADAPTER_MODE + factory functions + singleton exports |
-| `types.ts` (~300 lineas) | Todos los tipos compartidos: User, Session, SR, Arena, Mindset, etc. |
-| `errors.ts` (~533 lineas) | ServiceError base + 5 dominios + type guards + toServiceError |
-| `supabase.ts` | Supabase client singleton + Row types (ProfileRow, SessionRow, etc.) |
+| Archivo | Lineas | Descripcion |
+|---------|--------|-------------|
+| `index.ts` | ~221 | Registry: USE_MOCK auto-detect + ADAPTER_MODE + factory functions + defensive try-catch + singleton exports |
+| `types.ts` | ~306 | Todos los tipos: User, Session, SR, Arena, CreditPack, CREDIT_PACK_DETAILS, etc. |
+| `errors.ts` | ~541 | ServiceError base + 5 dominios + CREDITS_EXHAUSTED + type guards + toServiceError |
+| `supabase.ts` | ~186 | Supabase client singleton + Row types (ProfileRow, SessionRow, CreditPurchaseRow, CreditBalanceRow, etc.) |
 
 ### Interfaces (`/src/services/interfaces/`)
 
@@ -608,13 +707,13 @@ Resumen:
 
 | Archivo | Descripcion |
 |---------|-------------|
-| `auth.supabase.ts` | SupabaseAuthService — implementa IAuthService con Supabase Auth real |
+| `auth.supabase.ts` | SupabaseAuthService — implementa IAuthService con Supabase Auth real, fetchOrCreateProfile con 4 fallback levels |
 
 ### Documentacion (`/docs/`)
 
 | Archivo | Descripcion |
 |---------|-------------|
-| `MASTER_BLUEPRINT.md` | Este documento |
+| `MASTER_BLUEPRINT.md` | Este documento (v5.0) |
 | `WORKPLAN_v3.md` | Plan de trabajo por fases |
 | `PDR_SCREEN_BY_SCREEN.md` | Spec detallada de cada pantalla |
 | `QA_ACCEPTANCE_CRITERIA.md` | Tests de aceptacion por fase |
@@ -629,7 +728,7 @@ Resumen:
 | Item | Ubicacion | Impacto |
 |------|-----------|---------|
 | ~48 archivos shadcn/ui sin importar | `/src/app/components/ui/` | 0 (tree-shaking) |
-| Archivo monolitico | `PracticeSessionPage.tsx` (2891 lineas) | Legibilidad |
-| Archivo monolitico | `shared/index.tsx` (1211 lineas) | Legibilidad |
-| `RESET_PROTOTYPE = true` | `App.tsx` linea 31 | Limpia storage en cada load |
-| `USE_MOCK = true` hardcodeado | `services/index.ts` linea 68 | Fuerza mock, ignorando env vars |
+| Archivo monolitico | `PracticeSessionPage.tsx` (1339 lineas) | Legibilidad (reducido de 2891 con extraccion de SessionReport) |
+| Archivo monolitico | `shared/index.tsx` (1254 lineas) | Legibilidad |
+| Blank screen issue | Toda la app | Debugging en progreso — ErrorBoundary + defensive init agregados |
+| Hash-based routing (no react-router) | `App.tsx` | Funcional pero basico. No soporta deep linking complejo |

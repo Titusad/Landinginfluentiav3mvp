@@ -1,7 +1,7 @@
 # inFluentia PRO — Backend Developer Handoff
 
-> **Fecha:** 26 febrero 2026
-> **Estado del frontend:** Prototipo escrito con mock adapters (pendiente primera compilacion y debug)
+> **Fecha:** 3 marzo 2026
+> **Estado del frontend:** Prototipo escrito con mock adapters, auditoria de production readiness completada, debugging de blank screen en progreso (ErrorBoundary + defensive service init agregados).
 > **Tu mision:** Configurar Supabase, ejecutar la migracion, y progresivamente reemplazar mock adapters con adapters reales.
 
 ---
@@ -14,28 +14,34 @@
 /
 ├── .env.example              ← EMPIEZA AQUI: copia a .env y llena credenciales
 ├── docs/
-│   ├── MASTER_BLUEPRINT.md   ← Arquitectura completa (la biblia)
-│   ├── PDR_SCREEN_BY_SCREEN.md ← Spec de cada pantalla (15 screens / 11 internal steps)
-│   ├── QA_ACCEPTANCE_CRITERIA.md ← 124 tests por 5 fases
+│   ├── MASTER_BLUEPRINT.md   ← Arquitectura completa (la biblia) v5.0
+│   ├── PDR_SCREEN_BY_SCREEN.md ← Spec de cada pantalla (8 steps internos) v5.0
+│   ├── QA_ACCEPTANCE_CRITERIA.md ← 116 tests por 5 fases v4.0
 │   ├── SYSTEM_PROMPTS.md     ← Prompt engineering: 7 bloques, personas, voice map
 │   ├── FASE1_MIGRATION.sql   ← *** EJECUTAR EN SUPABASE SQL EDITOR ***
 │   ├── FASE1_ONBOARDING_SUPPLEMENT.md ← Instrucciones detalladas Fase 1
-│   ├── WORKPLAN_v3.md        ← Plan de trabajo por fases
+│   ├── WORKPLAN_v3.md        ← Plan de trabajo por fases v3.1
 │   ├── DEVELOPER_HANDOFF_CHECKLIST.md ← Checklist de accesos y credenciales
 │   └── BACKEND_HANDOFF.md    ← Este documento
 ├── src/
 │   ├── app/                  ← Frontend React (no necesitas tocar esto)
-│   │   ├── App.tsx           ← Entry point, hash routing, auth listener
-│   │   ├── components/       ← ~15 componentes de pantalla
+│   │   ├── App.tsx           ← Entry point, hash routing, auth listener, ErrorBoundary
+│   │   ├── components/       ← ~18 componentes de pantalla
 │   │   │   ├── arena/        ← ArenaSystem.tsx, BriefingRoom.tsx
-│   │   │   ├── shared/       ← Design system (index.tsx, ServiceErrorBanner, ProfileCompletionBanner)
+│   │   │   ├── shared/       ← Design system (index.tsx, ServiceErrorBanner, ProfileCompletionBanner, session-types.ts)
+│   │   │   ├── CreditUpsellModal.tsx  ← Modal de compra de credit packs
+│   │   │   ├── ErrorBoundary.tsx      ← Atrapa errores de render
+│   │   │   ├── LanguageTransitionModal.tsx ← Transicion de idioma post-auth
+│   │   │   ├── landing-i18n.ts        ← Copias ES/PT para Landing
+│   │   │   ├── LandingLangContext.tsx  ← Context para i18n
+│   │   │   ├── SessionReport.tsx      ← Reporte post-sesion
 │   │   │   └── ui/           ← ~48 archivos shadcn/ui (NO IMPORTADOS — ignorar)
 │   │   └── hooks/            ← useServiceCall (retry + error handling)
 │   ├── services/             ← *** TU ZONA PRINCIPAL DE TRABAJO ***
-│   │   ├── index.ts          ← Service Registry + adapter switch (USE_MOCK + ADAPTER_MODE)
-│   │   ├── types.ts          ← Tipos compartidos (~300 lineas: User, Session, SR, Arena, etc.)
-│   │   ├── errors.ts         ← Error protocol (5 dominios, ~30 codes, recovery strategies)
-│   │   ├── supabase.ts       ← Client singleton + Row types (match con SQL)
+│   │   ├── index.ts          ← Service Registry + adapter switch (USE_MOCK auto-detect + ADAPTER_MODE) + defensive try-catch
+│   │   ├── types.ts          ← Tipos compartidos (~306 lineas: User, Session, SR, Arena, CreditPack, etc.)
+│   │   ├── errors.ts         ← Error protocol (5 dominios, ~31 codes incl CREDITS_EXHAUSTED)
+│   │   ├── supabase.ts       ← Client singleton + Row types (match con SQL + credit tables)
 │   │   ├── prompts/          ← Prompt engineering (reutilizable en Edge Functions)
 │   │   │   ├── assembler.ts  ← 7-block prompt assembler
 │   │   │   ├── templates.ts  ← Master prompt, output format, first message
@@ -49,7 +55,7 @@
 │   │   │   ├── feedback.ts   ← IFeedbackService (4 metodos)
 │   │   │   ├── speech.ts     ← ISpeechService (4 metodos)
 │   │   │   ├── user.ts       ← IUserService (7+ metodos)
-│   │   │   ├── payment.ts    ← IPaymentService (3 metodos)
+│   │   │   ├── payment.ts    ← IPaymentService (3 metodos — credit packs, no suscripciones)
 │   │   │   └── spaced-repetition.ts ← ISpacedRepetitionService (6 metodos)
 │   │   └── adapters/
 │   │       ├── mock/         ← 7 mock adapters (tu referencia de comportamiento)
@@ -57,8 +63,8 @@
 │   │       │   ├── conversation.mock.ts
 │   │       │   ├── feedback.mock.ts
 │   │       │   ├── speech.mock.ts
-│   │       │   ├── user.mock.ts
-│   │       │   ├── payment.mock.ts
+│   │       │   ├── user.mock.ts      ← canStartSession con validacion de creditos
+│   │       │   ├── payment.mock.ts   ← createCheckout(uid, CreditPack), getCreditsBalance
 │   │       │   ├── spaced-repetition.mock.ts
 │   │       │   ├── utils.ts  ← delay, mockId, shouldSimulateError
 │   │       │   └── data/     ← 11 archivos de datos mock
@@ -69,30 +75,52 @@
 
 ### Los 5 archivos que debes leer antes de escribir codigo
 
-1. **`/src/services/index.ts`** — Entiende el sistema de switching mock/supabase
+1. **`/src/services/index.ts`** — Entiende el sistema de switching mock/supabase (ahora con auto-detect + try-catch)
 2. **`/src/services/interfaces/*.ts`** — Los 7 contratos que debes implementar
-3. **`/src/services/types.ts`** — Todos los tipos de datos compartidos
-4. **`/src/services/errors.ts`** — El protocolo de errores (el frontend ya lo maneja)
+3. **`/src/services/types.ts`** — Todos los tipos de datos compartidos (incl `CreditPack`, `CREDIT_PACK_DETAILS`)
+4. **`/src/services/errors.ts`** — El protocolo de errores (el frontend ya lo maneja, incl `CREDITS_EXHAUSTED`)
 5. **`/docs/FASE1_MIGRATION.sql`** — El schema SQL que debes ejecutar
 
 ---
 
 ## 2. Como funciona el Service Registry
 
-### El switch `USE_MOCK`
+### El switch `USE_MOCK` (auto-detect)
 
 En `/src/services/index.ts`:
 
 ```typescript
-// Estado actual: FORZADO a mock para prototipo
-const USE_MOCK = true;
+// Auto-detect: mock si Supabase no esta configurado
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true"
+  ? true
+  : import.meta.env.VITE_USE_MOCK === "false"
+    ? false
+    : !isSupabaseConfigured(); // ← auto-detect
+```
 
-// Cuando conectes Supabase, cambia a auto-detect:
-// const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true"
-//   ? true
-//   : import.meta.env.VITE_USE_MOCK === "false"
-//     ? false
-//     : !isSupabaseConfigured();
+> **Ya no esta hardcodeado.** Solo configura tus env vars y el sistema lo detecta automaticamente.
+
+### Defensive initialization (nuevo v5.0)
+
+```typescript
+// createAuthService tiene try-catch individual
+function createAuthService(): IAuthService {
+  if (shouldUseMock("auth")) return new MockAuthService();
+  try {
+    return new SupabaseAuthService();
+  } catch (err) {
+    console.error("[inFluentia] SupabaseAuthService failed, falling back to mock:", err);
+    return new MockAuthService();
+  }
+}
+
+// Toda la creacion de servicios esta en try-catch global
+try {
+  authService = createAuthService();
+  // ... otros servicios
+} catch (err) {
+  // Fallback a TODOS mocks si algo falla
+}
 ```
 
 ### El mapa `ADAPTER_MODE`
@@ -122,26 +150,55 @@ Ejemplo (ya hecho para auth):
 ```typescript
 function createAuthService(): IAuthService {
   if (shouldUseMock("auth")) return new MockAuthService();
-  return new SupabaseAuthService();
+  try {
+    return new SupabaseAuthService();
+  } catch (err) {
+    console.error("[inFluentia] SupabaseAuthService failed:", err);
+    return new MockAuthService();
+  }
 }
 ```
 
 ---
 
-## 3. Protocolo de errores
+## 3. Modelo de monetizacion: Credit Packs (NO suscripciones)
+
+**Importante cambio v5.0:** El modelo se simplifico a credit packs puros. NO hay suscripciones mensuales/trimestrales.
+
+```typescript
+type CreditPack = "session_1" | "session_3" | "session_5";
+
+// Detalles de cada pack
+session_1: { sessions: 1, price: 4.99, perSession: 4.99, discount: 0 }
+session_3: { sessions: 3, price: 12.99, perSession: 4.33, discount: 13 }
+session_5: { sessions: 5, price: 19.99, perSession: 4.00, discount: 20 }
+```
+
+### Tablas de creditos a crear
+
+```sql
+-- credit_purchases: registro de cada compra
+-- credit_balances: balance actual del usuario (denormalized, updated by triggers)
+```
+
+Tipos de fila definidos en `/src/services/supabase.ts`: `CreditPurchaseRow`, `CreditBalanceRow`.
+
+---
+
+## 4. Protocolo de errores
 
 Tu adapter DEBE lanzar los errores tipados correspondientes. El frontend ya los maneja.
 
-### Ejemplo: Conversation adapter
+### Ejemplo: Payment adapter
 
 ```typescript
-import { ConversationError } from "../../errors";
+import { PaymentError } from "../../errors";
 
-// Si GPT-4o timeout:
-throw new ConversationError("AI_TIMEOUT");
+// Si usuario no tiene creditos:
+throw new PaymentError("CREDITS_EXHAUSTED");
 
-// Si session no existe:
-throw new ConversationError("SESSION_NOT_FOUND");
+// Si checkout falla:
+throw new PaymentError("CHECKOUT_CREATION_FAILED");
 ```
 
 ### Errores por dominio
@@ -152,17 +209,11 @@ throw new ConversationError("SESSION_NOT_FOUND");
 | Conversation | `ConversationError` | `errors.ts` — 7 codes |
 | Feedback | `FeedbackError` | `errors.ts` — 5 codes |
 | Speech | `SpeechError` | `errors.ts` — 10 codes |
-| Payment | `PaymentError` | `errors.ts` — 7 codes (incluye `estimatedWait` para PAYMENT_PENDING) |
-
-Cada error tiene:
-- `code`: Machine-readable (para switch/match)
-- `userMessage`: Espanol (para UI)
-- `retryable`: boolean
-- `recovery`: "retry" | "retry-manual" | "user-action" | "degrade" | "navigate" | "none"
+| Payment | `PaymentError` | `errors.ts` — 8 codes (incluye `CREDITS_EXHAUSTED` + `estimatedWait` para PAYMENT_PENDING) |
 
 ---
 
-## 4. Prompt engineering (reutilizable)
+## 5. Prompt engineering (reutilizable)
 
 El modulo `/src/services/prompts/` contiene toda la logica de prompt assembly.
 **Puedes importar esto directamente en tus Edge Functions.**
@@ -182,16 +233,9 @@ const { systemPrompt, voiceId, subProfile, estimatedTokens } =
   });
 ```
 
-El assembler ya maneja:
-- 7 bloques (master prompt, persona, region, scenario, context, format, first message)
-- Sub-profile detection (NEGOTIATOR, LEADERSHIP)
-- GPT-4o vs 4o-mini template selection
-- Token estimation
-- Voice ID mapping
-
 ---
 
-## 5. Mock adapters como referencia
+## 6. Mock adapters como referencia
 
 Cada mock adapter es tu **especificacion de comportamiento**. Estudia:
 
@@ -201,28 +245,26 @@ Cada mock adapter es tu **especificacion de comportamiento**. Estudia:
 | `speech.mock.ts` | `setMockSpeechScenario()` para alinear transcripciones por scenario, scoring con progresion |
 | `feedback.mock.ts` | 4 metodos retornan datos por scenario type |
 | `spaced-repetition.mock.ts` | Three-band scoring (< 80 fail, 80-84 pass + SR card, >= 85 mastery) |
-| `user.mock.ts` | `canStartSession` con logica free/paid, `markFreeSessionUsed` |
-| `payment.mock.ts` | PAYMENT_PENDING con `estimatedWait` para pagos en efectivo |
+| `user.mock.ts` | `canStartSession` con logica free/creditos, `markFreeSessionUsed` |
+| `payment.mock.ts` | `createCheckout(uid, CreditPack)`, `getCreditsBalance`, PAYMENT_PENDING con `estimatedWait` |
 
 ---
 
-## 6. Quick start: Fase 1
+## 7. Quick start: Fase 1
 
-1. `cp .env.example .env` → Llena `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`
+1. Configura env vars (VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY) — el auto-detect en `services/index.ts` los detecta
 2. Configura Google OAuth en Supabase Dashboard
 3. Ejecuta `FASE1_MIGRATION.sql` en SQL Editor
-4. En `services/index.ts`: Cambia `const USE_MOCK = true` → descomenta la logica auto-detect
-5. Verifica: Google sign-in → profile creado → flujo completo con mock services
+4. Verifica: Google sign-in → profile creado → flujo completo con mock services
 
 Ver `FASE1_ONBOARDING_SUPPLEMENT.md` para instrucciones paso a paso.
 
 ---
 
-## 7. Notas importantes
+## 8. Notas importantes
 
-### `RESET_PROTOTYPE = true`
-En `App.tsx` linea 31, hay un flag que limpia localStorage en cada reload.
-**Desactivalo** (`= false`) cuando empieces a testear con auth real, o perderas la sesion.
+### ErrorBoundary
+En `App.tsx`, todo el contenido esta envuelto en `<ErrorBoundary>`. Si un componente crashea, el usuario ve un mensaje de error con stack trace en vez de pantalla blanca. Esto te ayuda a diagnosticar problemas rapidamente.
 
 ### `ui/` directory
 Los ~48 archivos en `/src/app/components/ui/` son scaffolding de shadcn/ui que NO se importan.
@@ -233,3 +275,6 @@ El sistema soporta 5 tipos con datos completos:
 `"sales"`, `"interview"`, `"csuite"`, `"negotiation"`, `"networking"`
 
 Cada tipo tiene datos mock especificos para: chat messages, shadowing phrases, script sections, feedback, cultural tips.
+
+### Auth race condition (resuelto)
+`App.tsx` usa `prevAuthUserRef` (no `authInitialized`) para trackear transiciones null→user post-login con Google OAuth. Esto resuelve el bug donde `authService.onAuthStateChanged` disparaba `callback(null)` primero y `callback(user)` despues en redirect flows.

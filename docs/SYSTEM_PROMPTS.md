@@ -3,9 +3,9 @@
 > Documento de ingenieria de prompts para el "cerebro" de inFluentia PRO.
 > Define los 7 bloques del system prompt, perfiles de interlocutor, contexto regional,
 > variante GPT-4o-mini, voice mapping, y logica de sub-perfiles dinamicos.
-> Referencia cruzada: MASTER_BLUEPRINT.md v4.1 §9
+> Referencia cruzada: MASTER_BLUEPRINT.md v5.0 §9
 > Codigo fuente: `/src/services/prompts/` (assembler.ts, templates.ts, personas.ts, regions.ts, voice-map.ts, analyst.ts)
-> Actualizado: 26 febrero 2026
+> Actualizado: 3 marzo 2026
 
 ---
 

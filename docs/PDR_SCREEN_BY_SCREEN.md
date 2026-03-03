@@ -1,8 +1,8 @@
-# inFluentia PRO - PDR Pantalla por Pantalla (v4.1)
+# inFluentia PRO - PDR Pantalla por Pantalla (v5.0)
 
 > Especificacion de cada pantalla: UI, servicios, navegacion y logica.
-> Referencia cruzada con MASTER_BLUEPRINT.md v4.1.
-> Actualizado: 26 febrero 2026 — Refleja el codigo escrito (pendiente primera compilacion).
+> Referencia cruzada con MASTER_BLUEPRINT.md v5.0.
+> Actualizado: 3 marzo 2026 — Refleja flujo simplificado a 8 steps, credit packs, i18n ES/PT, ErrorBoundary.
 
 ---
 
@@ -12,6 +12,7 @@
 |---|---|---|---|---|
 | 1 | [Landing Page](#pantalla-1-landing-page) | `#` (default) | `LandingPage` + `PracticeWidget` | Ninguno |
 | 2 | [Auth Modal](#pantalla-2-auth-modal) | (overlay in PracticeWidget) | `AuthModal` (inline) | `authService.signIn()` |
+| 2.5 | [Language Transition Modal](#pantalla-25-language-transition-modal) | (overlay post-auth) | `LanguageTransitionModal` | Ninguno |
 | **Sub-steps del PracticeSessionPage (`#practice-session`):** |
 | 4a | [Strategy Builder](#pantalla-4a-strategy-builder) | `#practice-session` | `StrategyBuilder` | Ninguno (local) |
 | 4b | [Extra Context](#pantalla-4b-extra-context) | `#practice-session` | `ExtraContextScreen` (inline, skippable) | Ninguno (local) |
@@ -20,38 +21,38 @@
 | 5 | [Voice Practice (Arena)](#pantalla-5-voice-practice-arena) | `#practice-session` | `VoicePractice` + `ArenaSystem` | `conversationService.*`, `speechService.*` |
 | 6 | [Analyzing Feedback](#pantalla-6-analyzing-feedback-loader) | `#practice-session` | `AnalyzingScreen(variant="feedback")` | (loader + mindset) |
 | 7 | [Conversation Feedback](#pantalla-7-conversation-feedback) | `#practice-session` | `ConversationFeedback` (inline) | Datos cargados en step anterior |
-| 8 | [Shadowing Practice](#pantalla-8-shadowing-practice) | `#practice-session` | `ShadowingPractice` (inline) | `speechService.*` |
-| 9a | [Analyzing Results](#pantalla-9a-analyzing-results-loader) | `#practice-session` | `AnalyzingScreen(variant="results")` | (loader + mindset) |
-| 9b | [Session Recap](#pantalla-9b-session-recap) | `#practice-session` | `SessionRecap` (inline) | `feedbackService.getCompletedSummary()`, `.generateResultsSummary()` |
-| 9c | [Mindset](#pantalla-9c-mindset) | `#practice-session` | `MindsetPulseScreen` (inline, skippable) | Ninguno (localStorage) |
-| 10 | [Dashboard](#pantalla-10-dashboard) | `#dashboard` | `DashboardPage` | `userService.*`, `spacedRepetitionService.*` |
+| 8 | [Session Report](#pantalla-8-session-report) | `#practice-session` | `SessionReport` | `feedbackService.getCompletedSummary()`, `.generateResultsSummary()` |
+| 10 | [Dashboard](#pantalla-10-dashboard) | `#dashboard` | `DashboardPage` | `userService.*`, `paymentService.*` |
 | 10.5 | [Practice History](#pantalla-105-practice-history) | `#practice-history` | `PracticeHistoryPage` | `userService.getPracticeHistory()` |
 | DS | [Design System](#design-system) | `#design-system` | `DesignSystemPage` | Ninguno |
 
-> **Nota**: Los sub-steps 4a-9c comparten la ruta `#practice-session` porque son pasos internos
-> del `PracticeSessionPage` orchestrator. El estado `Step` (11 valores) controla cual se renderiza.
+> **Nota v5.0**: El flujo se simplifico de 11 a 8 steps. Se eliminaron: `shadowing`, `analyzing-results`, `mindset`.
+> Los sub-steps comparten la ruta `#practice-session`. El estado `Step` (8 valores definidos en `shared/session-types.ts`) controla cual se renderiza.
 
 > **Layout Pattern**: Todas las pantallas internas usan el Internal Pages Layout:
-> BrandLogo header + accion contextual, `bg-[#f0f4f8]`, PastelBlobs decorativos, MiniFooter.
+> BrandLogo header + SessionProgressBar, `bg-[#f0f4f8]`, PastelBlobs decorativos, MiniFooter.
 
 ---
 
 ## Pantalla 1: Landing Page
 
 ### Componente
-`LandingPage.tsx` — importa `PracticeWidget`, `AuthModal`, `HowItWorksTabs`
+`LandingPage.tsx` — importa `PracticeWidget`, `AuthModal`, `HowItWorksTabs`, `LandingLangProvider`
+
+### i18n
+Soporta ES y PT via `landing-i18n.ts`. Language picker en header. Todas las secciones son traducidas dinamicamente via `useLandingCopy()` hook.
 
 ### Objetivo
 Capturar el escenario del usuario ANTES del registro (Input-First pattern) para
 generar compromiso via sunk cost psicologico.
 
 ### Secciones
-1. **Header** — BrandLogo, nav links (scroll), CTAs "Iniciar sesion" / "Registrarme"
+1. **Header** — BrandLogo, nav links (scroll), language picker (ES/PT), CTAs "Iniciar sesion" / "Registrarme"
 2. **Hero** — Badge + titulo + subtitulo + PracticeWidget embebido
 3. **PracticeWidget** — textarea con placeholder rotativo (typewriter), scenario pills, preview de IA contextual
 4. **How It Works** — Tabs interactivas (HowItWorksTabs component)
 5. **Benefits** — Grid de beneficios con iconos
-6. **Pricing** — 4 PricingCards (Free, Per-session, Monthly, Quarterly)
+6. **Pricing** — Free session card + 3 credit pack cards (1/$4.99, 3/$12.99, 5/$19.99)
 7. **FAQ** — Accordion
 8. **Footer**
 
@@ -63,9 +64,9 @@ generar compromiso via sunk cost psicologico.
 - Resultado: `SetupModalResult { scenario, scenarioType, interlocutor, guidedFields }`
 
 ### Navegacion
-- Registro (nuevo usuario) → `PracticeSessionPage` (step: strategy)
-- Login (usuario existente) → `Dashboard`
-- Header "Iniciar sesion" → AuthModal (login mode) → Dashboard
+- Registro (nuevo usuario) → LanguageTransitionModal → `PracticeSessionPage` (step: strategy)
+- Login (usuario existente) → LanguageTransitionModal → `Dashboard`
+- Header "Iniciar sesion" → AuthModal (login mode) → LanguageTransitionModal → Dashboard
 - Header "Registrarme" → AuthModal (registro mode)
 
 ---
@@ -73,7 +74,7 @@ generar compromiso via sunk cost psicologico.
 ## Pantalla 2: Auth Modal
 
 ### Componente
-`AuthModal.tsx` — modal overlay, 2 modos: login / registro
+`AuthModal.tsx` — modal overlay, 2 modos: login / registro, i18n via `useLandingCopy()`
 
 ### UI
 - **Modo registro**: "Crea tu cuenta" + Google button + LinkedIn button + toggle a login
@@ -90,10 +91,29 @@ generar compromiso via sunk cost psicologico.
 
 ---
 
+## Pantalla 2.5: Language Transition Modal (nuevo v5.0)
+
+### Componente
+`LanguageTransitionModal.tsx`
+
+### Objetivo
+Comunicar al usuario que la interfaz de practica sera en ingles (inmersion), despues de haber interactuado en su idioma nativo (ES/PT) en la Landing.
+
+### UI
+- Copy localizado por idioma (ES/PT)
+- Animacion con Motion
+- Boton "Let's go" → continua al destino (Dashboard o PracticeSession)
+
+### Navegacion
+- Se muestra una vez despues del primer auth
+- Click "Let's go" → ejecuta la navegacion pendiente (`pendingNavigationRef` en App.tsx)
+
+---
+
 ## Pantalla 4a: Strategy Builder
 
 ### Componente
-`StrategyBuilder.tsx` (~583 lineas)
+`StrategyBuilder.tsx` (~524 lineas)
 
 ### Objetivo
 Guiar al usuario a construir 3 "value pillars" para su conversacion usando preguntas de coach IA.
@@ -226,7 +246,7 @@ Practica de conversacion en tiempo real con IA, con 3 fases de dificultad progre
 - **Strengths** — cards con titulo y descripcion
 - **Opportunities** — cards con tag de categoria y descripcion
 - Script mejorado con highlights de color y tooltips
-- Boton "Continuar a pronunciacion"
+- Boton "Continuar"
 
 ### Datos
 - `getStrengthsForScenario(scenarioType)` → `Strength[]`
@@ -235,127 +255,63 @@ Practica de conversacion en tiempo real con IA, con 3 fases de dificultad progre
 
 ---
 
-## Pantalla 8: Shadowing Practice
+## Pantalla 8: Session Report (v5.0 — reemplaza Shadowing + Recap + Mindset)
 
 ### Componente
-`ShadowingPractice` (inline en PracticeSessionPage)
+`SessionReport.tsx` (~664 lineas)
 
 ### Objetivo
-Practicar pronunciacion de frases clave del script mejorado.
-
-### UI por frase
-1. Mostrar frase con **stress markers** (negritas en silabas enfatizadas)
-2. Play model audio → `speechService.speak(phrase)`
-3. Record user attempt → `speechService.scorePronunciation(phraseIndex, attemptIndex)`
-4. Show score + `AccuracyRing` + word-level feedback
-5. Si score >= 80 → siguiente frase; si < 80 → retry (max 3 attempts)
-
-### Three-band scoring
-- `< 80`: FAIL — retry o mark for SR
-- `80-84`: Technical PASS — advance + create SR card
-- `>= 85`: MASTERY — advance, no SR card
-
-### Datos
-- `getShadowingForScenario(scenarioType)` → `ShadowingPhrase[]`
-- Cada phrase tiene: `text` (con markers), `feedback` (word, phonetic, tip), `scores` (mock progression)
-
----
-
-## Pantalla 9a: Analyzing Results (Loader)
-
-### Componente
-`AnalyzingScreen` (variant: "results")
-
-### Comportamiento
-- Animacion de analisis
-- Mindset coaching durante la espera
-- En paralelo se cargan datos:
-  - `feedbackService.getCompletedSummary(sessionId)`
-  - `feedbackService.generateResultsSummary(sessionId)`
-
----
-
-## Pantalla 9b: Session Recap
-
-### Componente
-`SessionRecap` (inline en PracticeSessionPage)
+Reporte comprehensivo post-sesion que consolida toda la informacion de feedback, pronunciacion y mejora.
 
 ### UI
-- **ResultsSummary**: totalPhrases, totalTime, overallSentiment
-- **Pronunciation Notes**: tips categorizados (Claridad, Ritmo, Entonacion)
-- **Improvement Areas**: 3 areas personalizadas (una por categoria)
-- **Completed Phrases**: cards con phrase text + highlight word + phonetic
-- **Cheat Sheet** (seccion colapsable): resumen del script generado
-- **Download button**: `downloadCheatSheet()` — genera texto descargable
-- **SR Cards**: notificacion de cuantas cards se crearon (shadowing + arena)
+- **Overall Score** — puntuacion general de la sesion
+- **Strengths & Opportunities** — resumen de fortalezas e areas de mejora
+- **Power Phrases** — frases clave usadas y sugeridas
+- **Before/After** — comparaciones de mejora
+- **Pronunciation Notes** — tips de pronunciacion
+- **Script Sections** — secciones del script con highlights
+- **Next Steps** — recomendaciones para la siguiente practica
 
 ### Datos
-- `ResultsSummary` del step anterior
-- `CompletedPhraseSummary[]` del step anterior
-- `ShadowingPhrase[]` para cheat sheet
-- `SRCard[]` de arena y shadowing
-
----
-
-## Pantalla 9c: Mindset
-
-### Componente
-`MindsetPulseScreen` (inline en PracticeSessionPage)
-
-### Objetivo
-Cuestionario de 3 fases post-practica que genera coaching personalizado.
-
-### Fases de MindsetPulse
-1. **Confidence Level** — "How confident do you feel?" (1-5 scale)
-2. **Biggest Fear** — "What's your biggest fear about this conversation?" (text input)
-3. **Self-Assessment** — "How well did you do?" (1-5 scale)
-
-### Coaching Response
-- `generateMindsetCoaching(result)` — genera coaching basado en las respuestas
-- `MindsetCoachCard` — muestra el coaching personalizado
-- Resultado guardado en `MindsetPulseResult`
+- `feedbackService.getCompletedSummary(sessionId)` → `CompletedPhraseSummary[]`
+- `feedbackService.generateResultsSummary(sessionId)` → `ResultsSummary`
+- Datos de scenario via `scenario-data.ts` helpers
 
 ### Navegacion
-- "Continuar" → Dashboard
-- "Saltar" → Dashboard
+- "Volver al Dashboard" → Dashboard
 
 ---
 
 ## Pantalla 10: Dashboard
 
 ### Componente
-`DashboardPage.tsx`
+`DashboardPage.tsx` (~431 lineas)
 
 ### UI
 - **Header**: BrandLogo + avatar + nombre + logout
-- **ProfileCompletionBanner**: si perfil incompleto, pide industry/position/seniority
-- **3 Dimensiones con SVG Gauges**:
-  - Comunicacion (basada en strengths/opportunities)
-  - Pronunciacion (basada en shadowing scores)
-  - Mentalidad (basada en MindsetPulse results)
-- **Practice History** (ultimas sesiones):
-  - Cada card muestra: titulo, fecha, duracion, tag, arena phase reached
-  - Before/After highlight de la sesion
-  - Power phrases used, SR cards pending/mastered
-- **Spaced Repetition Widget**:
-  - Today's cards (sorted by lowest score)
-  - Inline practice con scoring
-- **Power Phrases Collection**: frases guardadas durante Arena
-- **CTAs**: "Nueva practica", "Ver historial completo"
+- **Credit Balance**: muestra creditos restantes + label contextual (i18n)
+- **CreditUpsellModal**: se abre cuando el usuario no tiene creditos e intenta iniciar sesion
+- **Practice History** (ultimas sesiones)
+- **CTAs**: "Nueva practica" (valida creditos via `handleStartSession`)
+- **Ver historial**
+
+### Credit Validation Flow (nuevo v5.0)
+1. Click "Start session" → `handleStartSession()` se ejecuta
+2. Llama `userService.canStartSession(uid)`
+3. Si `allowed: true` → navega a Landing para nueva practica
+4. Si `allowed: false` → abre `CreditUpsellModal`
 
 ### Service Calls (mock)
-- `userService.getProfile(uid)`
+- `userService.canStartSession(uid)` — valida creditos
+- `paymentService.getCreditsBalance(uid)` — obtiene balance
 - `userService.getPracticeHistory(uid)`
-- `userService.getPowerPhrases(uid)`
-- `spacedRepetitionService.getTodayCards(uid)`
-- `spacedRepetitionService.submitAttempt(cardId, attemptNumber)`
 
 ---
 
 ## Pantalla 10.5: Practice History
 
 ### Componente
-`PracticeHistoryPage.tsx`
+`PracticeHistoryPage.tsx` (~371 lineas)
 
 ### UI
 - Lista completa de sesiones pasadas
@@ -365,10 +321,55 @@ Cuestionario de 3 fases post-practica que genera coaching personalizado.
 
 ---
 
+## CreditUpsellModal (nuevo v5.0)
+
+### Componente
+`CreditUpsellModal.tsx` (~507 lineas)
+
+### Objetivo
+Modal in-app para compra de credit packs cuando el usuario no tiene creditos.
+
+### UI
+- Grid de 3 credit packs
+- Badges de descuento (13%, 20%)
+- Pack featured (3 sesiones)
+- Checkout via `paymentService.createCheckout(uid, pack)`
+- Post-compra: celebracion de confetti (`canvas-confetti`)
+- i18n completo ES/PT (copias internas)
+- Estados: browsing → processing → success → error
+
+### Service Calls
+- `paymentService.createCheckout(uid, pack)` → `CheckoutResult`
+
+---
+
+## ErrorBoundary (nuevo v5.0)
+
+### Componente
+`ErrorBoundary.tsx` (~181 lineas) — Class component
+
+### Objetivo
+Evitar la pantalla blanca cuando un componente React crashea durante render.
+
+### UI (fallback)
+- Branding inFluentia PRO
+- Mensaje bilingue "Algo salio mal / Something went wrong"
+- Error message + stack trace en monospace
+- Component stack trace (React)
+- Boton "Recargar App"
+- Fondo navy (#0f172b)
+
+### Implementacion
+- Wraps el `<div className="size-full">` entero en `App.tsx`
+- `getDerivedStateFromError` + `componentDidCatch`
+- Logs en console con `[inFluentia ErrorBoundary]` prefix
+
+---
+
 ## Design System
 
 ### Componente
-`DesignSystemPage.tsx` (~1703 lineas) — herramienta interna accesible via `#design-system`
+`DesignSystemPage.tsx` (~1680 lineas) — herramienta interna accesible via `#design-system`
 
 ### Secciones
 1. **Colors** — Palette completa con contextos de uso del color primario

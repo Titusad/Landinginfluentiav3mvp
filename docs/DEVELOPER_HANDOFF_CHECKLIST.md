@@ -2,7 +2,7 @@
 
 > **Proposito:** Todo lo que el product owner debe entregar al backend developer
 > MAS ALLA del codigo y la documentacion tecnica.
-> **Fecha:** 26 febrero 2026 (actualizado)
+> **Fecha:** 3 marzo 2026 (actualizado v5.0)
 
 ---
 
@@ -63,14 +63,14 @@ Opciones recomendadas:
 
 | Documento | Que contiene | Prioridad de lectura |
 |-----------|-------------|---------------------|
-| `MASTER_BLUEPRINT.md` v4.1 | Arquitectura completa, stack, data model, interfaces, errors, flow | **1ro** |
-| `BACKEND_HANDOFF.md` | Guia especifica para el backend dev: estructura, switching, errores | **2do** |
-| `PDR_SCREEN_BY_SCREEN.md` v4.1 | Spec de cada pantalla con service calls | **3ro** |
+| `MASTER_BLUEPRINT.md` v5.0 | Arquitectura, stack, data model, interfaces, errors, flow (8 steps), credit packs | **1ro** |
+| `BACKEND_HANDOFF.md` | Guia especifica para el backend dev: estructura, switching, errores, credit packs | **2do** |
+| `PDR_SCREEN_BY_SCREEN.md` v5.0 | Spec de cada pantalla con service calls (8 internal steps) | **3ro** |
 | `SYSTEM_PROMPTS.md` | 7 bloques del system prompt, personas, regions, voice map | **4to** |
-| `QA_ACCEPTANCE_CRITERIA.md` v3.0 | 124 tests totales, organizados por fase | **5to** |
+| `QA_ACCEPTANCE_CRITERIA.md` v4.0 | 116 tests totales, organizados por fase | **5to** |
 | `FASE1_MIGRATION.sql` | SQL completo para ejecutar en Supabase | **Fase 1** |
 | `FASE1_ONBOARDING_SUPPLEMENT.md` | Instrucciones detalladas dia por dia | **Fase 1** |
-| `WORKPLAN_v3.md` | Plan de trabajo: 4 fases backend, timeline | **Referencia** |
+| `WORKPLAN_v3.md` v3.1 | Plan de trabajo: 4 fases backend, timeline | **Referencia** |
 
 ---
 
@@ -78,21 +78,26 @@ Opciones recomendadas:
 
 | Aspecto | Estado | Nota |
 |---------|--------|------|
-| Codigo fuente | Escrito (~40 archivos) | Auditoria de imports/exports: 0 errores |
-| Compilacion | **No verificada** | Pendiente primera compilacion en Figma Make |
-| Runtime testing | **No hecho** | Pendiente debug y pruebas E2E |
+| Codigo fuente | Escrito (~45 archivos) | Auditoria de imports/exports + production readiness: 0 errores estaticos |
+| Production readiness audit | **Completada** | 14+ archivos limpiados: credit packs, i18n, tipos, services |
+| ErrorBoundary | **Agregado** | Atrapa errores de render, muestra fallback en vez de blank screen |
+| Defensive service init | **Agregado** | try-catch en createAuthService + global fallback a mocks |
+| Compilacion | **Blank screen en debug** | ErrorBoundary + defensive init como fix, investigacion en progreso |
+| i18n | **Completo** | ES/PT con LandingLangContext, landing-i18n.ts, LanguageTransitionModal |
 | Mock adapters | 7 implementados | Referencia de comportamiento para adapters reales |
 | Service interfaces | 7 definidas | Contratos que el backend debe implementar |
-| Error handling | Completo | 5 dominios, ~30 error codes, UI ya los maneja |
+| Error handling | Completo | 5 dominios, ~31 error codes (incl CREDITS_EXHAUSTED), UI ya los maneja |
 | Prompt engineering | Completo | 7-block assembler reutilizable en Edge Functions |
 | Design System | Completo | Pagina de referencia en `#design-system` |
+| Credit system | **Implementado** | CreditUpsellModal, DashboardPage validates credits, types + mocks updated |
 
 ### Importante: antes de que el backend developer empiece
 
 El frontend debe estar **compilando y corriendo** para que el backend developer pueda:
-1. Ver el flujo completo con mocks
+1. Ver el flujo completo con mocks (8 steps)
 2. Entender el comportamiento esperado de cada service call
 3. Verificar que sus adapters funcionan correctamente en el contexto real
+4. Ver el CreditUpsellModal y credit flow en accion
 
 ---
 
@@ -102,8 +107,9 @@ El frontend debe estar **compilando y corriendo** para que el backend developer 
 |---------|---------|
 | **Que es inFluentia PRO** | Simulador de comunicacion ejecutiva en ingles para profesionales LATAM |
 | **Target market** | Nearshoring: Mexico y Colombia |
-| **Modelo de negocio** | Freemium: 1 sesion gratis, luego per-session ($4.99) o suscripcion ($19.99/mes) |
+| **Modelo de negocio** | Pay-per-session: 1 sesion gratis, luego credit packs (1/$4.99, 3/$12.99, 5/$19.99) |
 | **Pagos LATAM** | Mercado Pago incluye OXXO (Mexico) y Efecty (Colombia) — pagos en efectivo con confirmacion 24-72h |
-| **Flujo de usuario** | Landing → Auth → Strategy → Practice (Arena 3 fases) → Feedback → Shadowing → Recap → Mindset → Dashboard |
-| **IA conversacional** | GPT-4o para conversacion, Gemini Flash para analisis, Azure Speech para pronunciacion |
-| **Retencion** | Spaced Repetition automatizado + Power Phrases coleccionables + Dashboard holistico |
+| **Flujo de usuario** | Landing (i18n ES/PT) → Auth → Language Modal → Strategy → Practice (Arena 3 fases) → Feedback → Session Report → Dashboard |
+| **IA conversacional** | GPT-4o para conversacion (GPT-4o-mini para free session), Gemini Flash para analisis, Azure Speech para pronunciacion |
+| **Retencion** | Spaced Repetition automatizado + Power Phrases coleccionables + Dashboard |
+| **Idiomas** | Landing: ES/PT. Practica y feedback: EN (inmersion) |

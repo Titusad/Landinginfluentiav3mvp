@@ -1,9 +1,9 @@
-# inFluentia PRO - Criterios de Aceptacion (QA Guide v3.0)
+# inFluentia PRO - Criterios de Aceptacion (QA Guide v4.0)
 
 > Guia de validacion por fases de implementacion.
 > Cada fase es auto-contenida y testeable de forma independiente.
-> Referencia cruzada: `MASTER_BLUEPRINT.md` v4.1, `PDR_SCREEN_BY_SCREEN.md` v4.1
-> Actualizado: 26 febrero 2026 — Refleja el flujo de 11 steps y el estado real del codigo.
+> Referencia cruzada: `MASTER_BLUEPRINT.md` v5.0, `PDR_SCREEN_BY_SCREEN.md` v5.0
+> Actualizado: 3 marzo 2026 — Refleja flujo de 8 steps, credit packs, i18n, ErrorBoundary.
 
 ---
 
@@ -24,11 +24,10 @@
 
 ### Objetivo
 Validar que el frontend completo funciona correctamente con los 7 mock adapters.
-Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
+Estado actual: **codigo escrito, auditado, ErrorBoundary agregado, debugging de blank screen en progreso.**
 
 ### Precondiciones
-- `USE_MOCK = true` en `/src/services/index.ts` (ya esta forzado)
-- `RESET_PROTOTYPE = true` en `/src/app/App.tsx` (ya esta activo)
+- `USE_MOCK` auto-detects (mock si Supabase no configurado)
 - App corriendo en Figma Make preview o `localhost`
 
 ---
@@ -38,8 +37,9 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
 | F0-00 | App compila sin errores | Build/preview en Figma Make | Sin errores de Vite/TypeScript en consola. La app renderiza. | **P0** |
+| F0-00b | ErrorBoundary funciona | Provocar error en componente hijo | ErrorBoundary muestra fallback con error message, NO pantalla blanca. | **P0** |
 | F0-01 | Landing Page renderiza | Abrir app (hash vacio) | Landing Page visible con hero, PracticeWidget, pricing, FAQ. Sin pantalla blanca. | **P0** |
-| F0-02 | Flujo completo 11 steps | `[MOCK]` 1. Escribir escenario en PracticeWidget 2. Click "Comenzar practica" 3. Completar PracticeSetupModal 4. Auth mock (Google) 5. StrategyBuilder (3 pillars o skip) 6. Extra Context (skip) 7. Generating Script (loader) 8. Pre-Briefing 9. Voice Practice (Arena) 10. Analyzing Feedback 11. ConversationFeedback 12. Shadowing 13. Analyzing Results 14. Session Recap 15. Mindset (o skip) 16. Dashboard | El usuario llega al Dashboard sin errores, crashes, ni pantallas en blanco. | **P0** |
+| F0-02 | Flujo completo 8 steps | `[MOCK]` 1. Escribir escenario en PracticeWidget 2. Click "Comenzar practica" 3. Completar PracticeSetupModal 4. Auth mock (Google) 5. LanguageTransitionModal 6. StrategyBuilder (3 pillars o skip) 7. Extra Context (skip) 8. Generating Script (loader) 9. Pre-Briefing 10. Voice Practice (Arena) 11. Analyzing Feedback 12. ConversationFeedback 13. Session Report 14. Dashboard | El usuario llega al Dashboard sin errores, crashes, ni pantallas en blanco. | **P0** |
 
 ---
 
@@ -51,8 +51,9 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 | F0-04 | Scenario pills | `[MOCK]` Click en pill "Pitch de ventas" | Textarea se llena con texto de la pill. | **P1** |
 | F0-05 | Preview de IA contextual | `[MOCK]` Escribir "reunion de presupuesto" | Preview aparece debajo con rol del interlocutor. | **P1** |
 | F0-06 | Header nav links | `[MOCK]` Click en "Como funciona", "Beneficios", "Precio" | Smooth scroll a cada seccion. | **P2** |
-| F0-07 | Pricing cards (4 planes) | `[MOCK]` Scroll a precios | 4 cards: Free ($0), Per-session ($4.99), Mensual ($19.99 destacada), Quarterly ($44.99). | **P1** |
+| F0-07 | Pricing section — credit packs | `[MOCK]` Scroll a precios | Free session card + 3 credit pack cards (1/$4.99, 3/$12.99, 5/$19.99). NO monthly/quarterly plans. | **P1** |
 | F0-08 | CTAs header | `[MOCK]` Click "Registrarme", luego "Iniciar sesion" | AuthModal se abre en modo correcto (registro vs login). | **P1** |
+| F0-08b | Language picker | `[MOCK]` Click language picker ES→PT | Toda la landing cambia a portugues. | **P1** |
 
 ---
 
@@ -72,11 +73,20 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
-| F0-14 | Registro Google (mock) | `[MOCK]` Click "Registrarse con Google" | Mock delay (~1s) > Modal cierra > Navega a PracticeSessionPage. | **P0** |
+| F0-14 | Registro Google (mock) | `[MOCK]` Click "Registrarse con Google" | Mock delay (~300ms) > Modal cierra > LanguageTransitionModal aparece. | **P0** |
 | F0-15 | Registro LinkedIn (mock) | `[MOCK]` Click "Registrarse con LinkedIn" | Mismo comportamiento que Google. | **P0** |
 | F0-16 | Toggle login/registro | `[MOCK]` Toggle entre modos | Titulo y botones cambian sin cerrar modal. | **P1** |
 | F0-17 | Cerrar modal (X) | `[MOCK]` Click X o backdrop | Modal cierra, regresa a Landing. | **P1** |
-| F0-18 | Login → Dashboard | `[MOCK]` AuthModal modo login > Click Google | Mock auth > Navega a Dashboard (no a PracticeSession). | **P0** |
+| F0-18 | Login → LanguageTransitionModal → Dashboard | `[MOCK]` AuthModal modo login > Click Google | Mock auth > LanguageTransitionModal > Navega a Dashboard. | **P0** |
+
+---
+
+### 0.4b Language Transition Modal (nuevo)
+
+| ID | Test | Pasos | Resultado Esperado | Prioridad |
+|---|---|---|---|---|
+| F0-18b | Modal aparece post-auth | `[MOCK]` Completar auth (registro o login) | LanguageTransitionModal se muestra con copy en idioma correcto (ES o PT). | **P1** |
+| F0-18c | Click "Let's go" navega | `[MOCK]` Click boton en modal | Modal cierra, navega al destino correcto (PracticeSession o Dashboard). | **P0** |
 
 ---
 
@@ -152,114 +162,91 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 | F0-42 | Strengths cards | `[MOCK]` Llegar a Feedback | Al menos 2 strength cards con titulo y descripcion. | **P1** |
 | F0-43 | Opportunities cards | `[MOCK]` Verificar opportunities | Cards con tag de categoria (ej: "Negotiation technique"). | **P1** |
 | F0-44 | Script mejorado | `[MOCK]` Scroll al script | Secciones numeradas con highlights de color. | **P1** |
-| F0-45 | Continuar a Shadowing | `[MOCK]` Click "Continuar" | Transicion a Shadowing Practice. | **P0** |
+| F0-45 | Continuar a Session Report | `[MOCK]` Click "Continuar" | Transicion a Session Report. | **P0** |
 
 ---
 
-### 0.12 Shadowing Practice (Pantalla 8)
+### 0.12 Session Report (Pantalla 8 — reemplaza Shadowing + Recap + Mindset)
 
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
-| F0-46 | Primera frase renderiza | `[MOCK]` Llegar a Shadowing | Frase con stress markers (negritas) visible. | **P0** |
-| F0-47 | Play model audio | `[MOCK]` Click play | Simulacion de audio (delay basado en text length). | **P1** |
-| F0-48 | Record attempt | `[MOCK]` Grabar respuesta | Score aparece con AccuracyRing. | **P0** |
-| F0-49 | Three-band scoring visual | `[MOCK]` Ver scores | < 80 = rojo (retry), 80-84 = amarillo (pass), >= 85 = verde (mastery). | **P1** |
-| F0-50 | Retry on fail | `[MOCK]` Score < 80 | Opcion de retry visible. Max 3 attempts. | **P1** |
-| F0-51 | Advance on pass | `[MOCK]` Score >= 80 | Siguiente frase o completar shadowing. | **P0** |
-| F0-52 | Word feedback | `[MOCK]` Ver feedback | Word + phonetic + tip visibles. | **P1** |
-| F0-53 | Complete shadowing | `[MOCK]` Terminar 3 frases | Transicion a Analyzing Results. | **P0** |
+| F0-46 | Report renderiza | `[MOCK]` Llegar a Session Report | Reporte comprehensivo con scores, phrases, feedback. | **P0** |
+| F0-47 | Power phrases visibles | `[MOCK]` Verificar secciones | Frases clave con highlights y tooltips. | **P1** |
+| F0-48 | Before/After comparisons | `[MOCK]` Verificar | Comparaciones de mejora visibles. | **P1** |
+| F0-49 | Pronunciation notes | `[MOCK]` Verificar | Tips de pronunciacion categorizados. | **P1** |
+| F0-50 | Navegar a Dashboard | `[MOCK]` Click "Volver al Dashboard" | Navega a Dashboard (#dashboard). | **P0** |
 
 ---
 
-### 0.13 Analyzing Results Loader (Pantalla 9a)
+### 0.13 Dashboard (Pantalla 10)
 
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
-| F0-54 | Loader renderiza | `[MOCK]` Llegar al loader | Animacion + mindset + auto-transicion a Session Recap. | **P0** |
+| F0-51 | Dashboard renderiza | `[MOCK]` Llegar a Dashboard | Header, credit balance, historial, CTAs visibles. | **P0** |
+| F0-52 | Credit balance display | `[MOCK]` Verificar | Balance de creditos con label correcto. | **P1** |
+| F0-53 | Practice history cards | `[MOCK]` Verificar historial | Cards con titulo, fecha, duracion. | **P1** |
+| F0-54 | Start session — con creditos | `[MOCK]` Click "Nueva practica" con creditos disponibles | Navega a Landing para nueva practica. | **P0** |
+| F0-55 | Start session — sin creditos | `[MOCK]` Click "Nueva practica" sin creditos | CreditUpsellModal se abre. | **P0** |
+| F0-56 | CreditUpsellModal | `[MOCK]` Verificar modal | Grid de 3 packs, badges de descuento, boton de checkout. | **P1** |
+| F0-57 | CreditUpsellModal — compra simulada | `[MOCK]` Click comprar en modal | Celebracion de confetti, creditos actualizados. | **P1** |
+| F0-58 | Logout | `[MOCK]` Click logout | Regresa a Landing, estado limpio. | **P1** |
+| F0-59 | "Ver historial" | `[MOCK]` Click | Navega a Practice History. | **P1** |
 
 ---
 
-### 0.14 Session Recap (Pantalla 9b)
+### 0.14 Practice History (Pantalla 10.5)
 
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
-| F0-55 | Results summary | `[MOCK]` Llegar a Recap | totalPhrases, totalTime, overallSentiment visibles. | **P1** |
-| F0-56 | Pronunciation notes | `[MOCK]` Verificar notas | Tips categorizados (Claridad, Ritmo, Entonacion). | **P1** |
-| F0-57 | Improvement areas | `[MOCK]` Verificar areas | 3 areas personalizadas visibles. | **P1** |
-| F0-58 | Completed phrases cards | `[MOCK]` Verificar cards | Cards con phrase, highlight word, phonetic. | **P1** |
-| F0-59 | Cheat sheet colapsable | `[MOCK]` Toggle cheat sheet | Seccion se expande/colapsa con script generado. | **P2** |
-| F0-60 | Download cheat sheet | `[MOCK]` Click download | Archivo de texto se genera/descarga. | **P2** |
-| F0-61 | SR cards notification | `[MOCK]` Verificar | Indica cuantas SR cards se crearon. | **P2** |
-| F0-62 | Continuar a Mindset | `[MOCK]` Click continuar | Transicion a MindsetPulse. | **P0** |
+| F0-60 | Lista de sesiones | `[MOCK]` Navegar a #practice-history | Lista completa de sesiones mock. | **P1** |
+| F0-61 | Volver a Dashboard | `[MOCK]` Click "Volver" | Regresa a Dashboard. | **P1** |
 
 ---
 
-### 0.15 Mindset (Pantalla 9c)
+### 0.15 Hash Navigation
 
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
-| F0-63 | 3 fases del cuestionario | `[MOCK]` Completar las 3 fases | Confidence (1-5), Biggest Fear (text), Self-Assessment (1-5). | **P1** |
-| F0-64 | Coaching response | `[MOCK]` Completar cuestionario | MindsetCoachCard aparece con coaching personalizado. | **P1** |
-| F0-65 | Skip mindset | `[MOCK]` Click "Saltar" | Navega directo a Dashboard. | **P1** |
-| F0-66 | Continuar a Dashboard | `[MOCK]` Click "Continuar" | Navega a Dashboard. | **P0** |
+| F0-62 | Direct navigation | `[MOCK]` Ir a `#dashboard` directo | Dashboard renderiza con datos mock. | **P1** |
+| F0-63 | Direct `#practice-session` | `[MOCK]` Ir directo | PracticeSessionPage renderiza (en step strategy). | **P1** |
+| F0-64 | Direct `#design-system` | `[MOCK]` Ir directo | DesignSystemPage renderiza. | **P2** |
 
 ---
 
-### 0.16 Dashboard (Pantalla 10)
+### 0.16 Error Simulation
 
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
-| F0-67 | Dashboard renderiza | `[MOCK]` Llegar a Dashboard | Header, gauges, historial, widgets visibles. | **P0** |
-| F0-68 | 3 dimensiones con gauges | `[MOCK]` Verificar SVG gauges | Comunicacion, Pronunciacion, Mentalidad con datos mock. | **P1** |
-| F0-69 | ProfileCompletionBanner | `[MOCK]` Si perfil incompleto | Banner pide completar industry/position/seniority. | **P2** |
-| F0-70 | Practice history cards | `[MOCK]` Verificar historial | Cards con titulo, fecha, duracion, before/after highlight. | **P1** |
-| F0-71 | SR widget | `[MOCK]` Verificar SR cards | Today's cards con boton de practica. | **P1** |
-| F0-72 | "Nueva practica" | `[MOCK]` Click CTA | Navega a Landing. | **P1** |
-| F0-73 | "Ver historial" | `[MOCK]` Click | Navega a Practice History. | **P1** |
-| F0-74 | Logout | `[MOCK]` Click logout | Regresa a Landing, estado limpio. | **P1** |
+| F0-65 | Error simulation activa | `[SIM]` Agregar `?simulate_errors=true` | Errores aleatorios aparecen en service calls. | **P2** |
+| F0-66 | ServiceErrorBanner | `[SIM]` Provocar error en conversacion | Banner de error con mensaje en espanol + boton retry. | **P2** |
+| F0-67 | Retry funcional | `[SIM]` Click retry en banner | La operacion se reintenta (puede fallar de nuevo por simulacion). | **P2** |
+| F0-68 | ErrorBoundary catch | Provocar error de render | ErrorBoundary muestra fallback con stack trace, NO pantalla blanca. | **P1** |
 
 ---
 
-### 0.17 Practice History (Pantalla 10.5)
+### 0.17 Responsive
 
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
-| F0-75 | Lista de sesiones | `[MOCK]` Navegar a #practice-history | Lista completa de sesiones mock. | **P1** |
-| F0-76 | Volver a Dashboard | `[MOCK]` Click "Volver" | Regresa a Dashboard. | **P1** |
+| F0-69 | Mobile Landing | `[MOCK]` Viewport 375px | Landing se adapta, hamburger menu funciona. | **P1** |
+| F0-70 | Mobile Arena | `[MOCK]` Viewport 375px en Arena | Chat, RecordButton, PhaseIndicator se adaptan. | **P1** |
+| F0-71 | Mobile Dashboard | `[MOCK]` Viewport 375px | Dashboard cards se apilan, credit balance visible. | **P2** |
 
 ---
 
-### 0.18 Hash Navigation
+### 0.18 i18n (nuevo)
 
 | ID | Test | Pasos | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
-| F0-77 | Direct navigation | `[MOCK]` Ir a `#dashboard` directo | Dashboard renderiza con datos mock. | **P1** |
-| F0-78 | Direct `#practice-session` | `[MOCK]` Ir directo | PracticeSessionPage renderiza (en step strategy). | **P1** |
-| F0-79 | Direct `#design-system` | `[MOCK]` Ir directo | DesignSystemPage renderiza. | **P2** |
+| F0-72 | Landing en Espanol | `[MOCK]` Seleccionar ES | Toda la landing en espanol. | **P1** |
+| F0-73 | Landing en Portugues | `[MOCK]` Seleccionar PT | Toda la landing en portugues. | **P1** |
+| F0-74 | Auth modal i18n | `[MOCK]` Abrir auth en modo PT | Textos del modal en portugues. | **P1** |
+| F0-75 | CreditUpsellModal i18n | `[MOCK]` Abrir modal en modo PT | Textos y labels en portugues. | **P2** |
+| F0-76 | Persistencia de idioma | `[MOCK]` Seleccionar PT > Recargar pagina | Idioma se mantiene en PT (localStorage). | **P2** |
 
 ---
 
-### 0.19 Error Simulation
-
-| ID | Test | Pasos | Resultado Esperado | Prioridad |
-|---|---|---|---|---|
-| F0-80 | Error simulation activa | `[SIM]` Agregar `?simulate_errors=true` | Errores aleatorios aparecen en service calls. | **P2** |
-| F0-81 | ServiceErrorBanner | `[SIM]` Provocar error en conversacion | Banner de error con mensaje en espanol + boton retry. | **P2** |
-| F0-82 | Retry funcional | `[SIM]` Click retry en banner | La operacion se reintenta (puede fallar de nuevo por simulacion). | **P2** |
-
----
-
-### 0.20 Responsive
-
-| ID | Test | Pasos | Resultado Esperado | Prioridad |
-|---|---|---|---|---|
-| F0-83 | Mobile Landing | `[MOCK]` Viewport 375px | Landing se adapta, hamburger menu funciona. | **P1** |
-| F0-84 | Mobile Arena | `[MOCK]` Viewport 375px en Arena | Chat, RecordButton, PhaseIndicator se adaptan. | **P1** |
-| F0-85 | Mobile Dashboard | `[MOCK]` Viewport 375px | Dashboard cards se apilan, gauges visibles. | **P2** |
-
----
-
-**Total Fase 0: 86 tests (F0-00 a F0-85)**
+**Total Fase 0: 77 tests (F0-00 a F0-76)**
 
 ---
 
@@ -269,7 +256,7 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 - Fase 0 completada (prototipo funciona con mocks)
 - Supabase configurado con Google + LinkedIn OAuth
 - `FASE1_MIGRATION.sql` ejecutado
-- `USE_MOCK = false` (o auto-detect con env vars)
+- env vars configurados → auto-detect activa auth real
 
 | ID | Test | Tipo | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
@@ -279,12 +266,12 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 | F1-04 | RLS: user solo ve su data | `[REAL]` | Query cross-user retorna 0 rows | **P0** |
 | F1-05 | Auth persistence | `[REAL]` | Refresh page → usuario sigue logueado | **P1** |
 | F1-06 | Sign-out | `[REAL]` | Logout → session destroyed → Landing | **P1** |
-| F1-07 | onAuthStateChanged | `[REAL]` | Callback fires en login/logout | **P0** |
+| F1-07 | onAuthStateChanged — prevAuthUserRef | `[REAL]` | Callback fires en login/logout, no race condition con OAuth redirect | **P0** |
 | F1-08 | Hybrid mode | `[REAL]` | Auth real + conversation/feedback/speech mock → flujo completo sin crashes | **P0** |
-| F1-09 | Fallback to mock | `[REAL]` | Sin env vars → auto-detect → mock auth | **P1** |
+| F1-09 | Fallback to mock | `[REAL]` | Sin env vars → auto-detect → mock auth (try-catch en createAuthService) | **P1** |
 | F1-10 | Regression F0 | `[REAL]` | Todos los F0-xx siguen pasando con auth real | **P0** |
 
-**Total Fase 1: 10 tests nuevos + 86 regression = 96 tests**
+**Total Fase 1: 10 tests nuevos + 77 regression = 87 tests**
 
 ---
 
@@ -297,13 +284,13 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 | F2-03 | isComplete override | `[REAL]` | `false` si turn < 4, `true` si turn >= 8 | **P0** |
 | F2-04 | internalAnalysis filtered | `[REAL]` | Guardado en DB pero NO enviado al frontend | **P0** |
 | F2-05 | JSON resilience | `[REAL]` | Malformed JSON → retry 1x → fallback message | **P1** |
-| F2-06 | GPT-4o vs 4o-mini | `[REAL]` | Free → mini, Paid → 4o | **P1** |
+| F2-06 | GPT-4o vs 4o-mini | `[REAL]` | Free → mini, Paid (creditos) → 4o | **P1** |
 | F2-07 | ElevenLabs TTS | `[REAL]` | Audio plays for AI responses | **P1** |
 | F2-08 | R2 audio cache | `[REAL]` | Second play → cache hit (no ElevenLabs call) | **P2** |
 | F2-09 | Audit log written | `[REAL]` | Row in audit_logs with tokens, latency, cost | **P1** |
 | F2-10 | Regression F0+F1 | `[REAL]` | All previous tests pass | **P0** |
 
-**Total Fase 2: 10 tests nuevos + 96 regression = 106 tests**
+**Total Fase 2: 10 tests nuevos + 87 regression = 97 tests**
 
 ---
 
@@ -317,29 +304,30 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 | F3-04 | transcribe real | `[REAL]` | Azure STT returns accurate transcription | **P0** |
 | F3-05 | generateResultsSummary | `[REAL]` | Pronunciation notes + improvement areas | **P1** |
 | F3-06 | SR cards auto-created | `[REAL]` | Phrases with score < 85 → new SR cards | **P1** |
-| F3-07 | E2E: Conv → Feedback → Shadowing → Recap | `[REAL]` | Full flow with real services | **P0** |
+| F3-07 | E2E: Conv → Feedback → Session Report | `[REAL]` | Full flow with real services | **P0** |
 | F3-08 | Regression F0-F2 | `[REAL]` | All previous tests pass | **P0** |
 
-**Total Fase 3: 8 tests nuevos + 106 regression = 114 tests**
+**Total Fase 3: 8 tests nuevos + 97 regression = 105 tests**
 
 ---
 
-## Fase 4: User Data + Payments
+## Fase 4: User Data + Payments (Credit Packs)
 
 | ID | Test | Tipo | Resultado Esperado | Prioridad |
 |---|---|---|---|---|
 | F4-01 | getPracticeHistory real | `[REAL]` | Real session data from DB | **P0** |
 | F4-02 | getPowerPhrases real | `[REAL]` | Power phrases from DB | **P1** |
-| F4-03 | canStartSession: free | `[REAL]` | Allowed first session, blocked after | **P0** |
-| F4-04 | canStartSession: paid | `[REAL]` | Always allowed for paid plans | **P0** |
-| F4-05 | createCheckout | `[REAL]` | Mercado Pago sandbox checkout URL | **P0** |
-| F4-06 | Webhook confirms payment | `[REAL]` | Plan updated in profiles after webhook | **P0** |
-| F4-07 | PAYMENT_PENDING flow | `[REAL]` | OXXO/Efecty → pending state → eventual confirmation | **P1** |
-| F4-08 | SR getTodayCards real | `[REAL]` | Cards sorted by priority from DB | **P1** |
-| F4-09 | SR submitAttempt real | `[REAL]` | Score + interval progression in DB | **P1** |
-| F4-10 | Regression F0-F3 | `[REAL]` | All previous tests pass | **P0** |
+| F4-03 | canStartSession: free | `[REAL]` | Allowed first session, blocked after (no credits) | **P0** |
+| F4-04 | canStartSession: with credits | `[REAL]` | Allowed when credits > 0 | **P0** |
+| F4-05 | createCheckout — credit pack | `[REAL]` | Mercado Pago sandbox checkout URL for CreditPack | **P0** |
+| F4-06 | Webhook confirms payment | `[REAL]` | Credits added to credit_balances after webhook | **P0** |
+| F4-07 | PAYMENT_PENDING flow | `[REAL]` | OXXO/Efecty → pending state → eventual credit addition | **P1** |
+| F4-08 | CREDITS_EXHAUSTED error | `[REAL]` | CreditUpsellModal appears when no credits | **P0** |
+| F4-09 | SR getTodayCards real | `[REAL]` | Cards sorted by priority from DB | **P1** |
+| F4-10 | SR submitAttempt real | `[REAL]` | Score + interval progression in DB | **P1** |
+| F4-11 | Regression F0-F3 | `[REAL]` | All previous tests pass | **P0** |
 
-**Total Fase 4: 10 tests nuevos + 114 regression = 124 tests**
+**Total Fase 4: 11 tests nuevos + 105 regression = 116 tests**
 
 ---
 
@@ -347,8 +335,8 @@ Estado actual: **codigo escrito, pendiente primera compilacion y testing.**
 
 | Fase | Tests nuevos | Regression | Total acumulado |
 |------|-------------|------------|-----------------|
-| Fase 0 (Mock) | 86 | — | 86 |
-| Fase 1 (Auth) | 10 | 86 | 96 |
-| Fase 2 (Conversation) | 10 | 96 | 106 |
-| Fase 3 (Feedback+Speech) | 8 | 106 | 114 |
-| Fase 4 (User+Payments) | 10 | 114 | 124 |
+| Fase 0 (Mock) | 77 | — | 77 |
+| Fase 1 (Auth) | 10 | 77 | 87 |
+| Fase 2 (Conversation) | 10 | 87 | 97 |
+| Fase 3 (Feedback+Speech) | 8 | 97 | 105 |
+| Fase 4 (User+Credits) | 11 | 105 | 116 |

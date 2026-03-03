@@ -4,7 +4,7 @@
 > Contiene los artefactos ejecutables y las instrucciones de wiring
 > que el desarrollador necesita para completar Fase 1 en 5 dias.
 > **Prerequisito:** El prototipo (Fase 0) debe estar compilando y corriendo con mocks.
-> Actualizado: 26 febrero 2026
+> Actualizado: 3 marzo 2026 (v5.0 — refleja USE_MOCK auto-detect, defensive init, credit packs)
 
 ---
 
@@ -13,18 +13,21 @@
 | Archivo | Que es | Cuando usarlo |
 |---|---|---|
 | `/docs/FASE1_MIGRATION.sql` | SQL completo: 5 tablas + trigger + RLS + indexes | Dia 2: ejecutar en Supabase SQL Editor |
-| `/src/services/supabase.ts` | Supabase client singleton + tipos de filas DB | Dia 1: configurar env vars |
-| `/src/services/adapters/supabase/auth.supabase.ts` | SupabaseAuthService implementado | Dia 1: ya funcional |
-| `/src/services/index.ts` | Per-service toggle (modo hibrido) | Dia 1: cambiar `USE_MOCK = false` |
-| `/src/app/components/AuthModal.tsx` | Wired a `authService.signIn()` con error handling | Ya wired |
+| `/src/services/supabase.ts` | Supabase client singleton + tipos de filas DB (incl CreditPurchaseRow, CreditBalanceRow) | Dia 1: configurar env vars |
+| `/src/services/adapters/supabase/auth.supabase.ts` | SupabaseAuthService implementado (con fetchOrCreateProfile 4-level fallback) | Dia 1: ya funcional |
+| `/src/services/index.ts` | Per-service toggle (auto-detect + defensive try-catch) | Dia 1: solo configurar env vars |
+| `/src/app/components/AuthModal.tsx` | Wired a `authService.signIn()` con error handling + i18n | Ya wired |
 | `/src/app/components/PracticeWidget.tsx` | SignupModal wired a authService | Ya wired |
-| `/.env.example` | Template de variables de entorno | Dia 1: copiar a .env |
+| `/src/app/components/ErrorBoundary.tsx` | Atrapa errores de render, muestra diagnostico | Ya wired en App.tsx |
 
 ---
 
 ## Dia 1: Setup + Auth Wiring (4 horas)
 
 ### 1.1 Configurar credenciales
+
+En Figma Make: usar el Supabase connection tool.
+En repo local:
 
 ```bash
 cp .env.example .env
@@ -47,19 +50,16 @@ Llenar en `.env`:
 2. Crear app en LinkedIn Developer Portal
 3. Scopes: `openid`, `profile`, `email`
 
-### 1.3 Activar modo hibrido
+### 1.3 Verificar auto-detect
 
-En `/src/services/index.ts`, cambiar:
+> **Ya no necesitas cambiar USE_MOCK manualmente.**
 
-```typescript
-const USE_MOCK = false;  // Era true
-```
+Con las env vars configuradas, `services/index.ts` auto-detecta:
+- `isSupabaseConfigured()` retorna `true`
+- `USE_MOCK` se setea a `false` automaticamente
+- `ADAPTER_MODE.auth = "supabase"` → `SupabaseAuthService` se usa
 
-Esto activa:
-- `authService` → SupabaseAuthService (real)
-- Los otros 6 servicios → Mock (sin cambios)
-
-El fallback es automatico: si las env vars no estan, `shouldUseMock()` detecta y usa mock con un warning en console.
+Si algo falla en la inicializacion, el `createAuthService()` tiene try-catch y cae a `MockAuthService` con un error en console.
 
 ### 1.4 Verificar wiring
 
@@ -70,8 +70,9 @@ Los siguientes componentes YA estan wired a `authService`:
 | `AuthModal` | Llama `authService.signIn(provider)` por boton | Muestra `AuthError.userMessage` inline + bubble a parent |
 | `PracticeWidget > SignupModal` | Llama `authService.signIn(provider)` por boton | Muestra error inline |
 | `DashboardPage` | Llama `authService.signOut()` en logout | Fire-and-forget + navega |
+| `App.tsx` | `authService.onAuthStateChanged()` con `prevAuthUserRef` tracking | Auto-navega post-login |
 
-**NO necesita cambios el desarrollador.** Solo configurar env vars y cambiar `USE_MOCK`.
+**NO necesita cambios el desarrollador.** Solo configurar env vars.
 
 ---
 
@@ -120,18 +121,18 @@ WHERE trigger_name = 'on_auth_user_created';
 | F1-10 | Query `SELECT * FROM sessions` como user A | Solo retorna filas de user A |
 | F1-11 | Intentar acceder a session de user B | 0 filas retornadas (RLS) |
 | F1-12 | Registrar usuario nuevo | Trigger crea `profiles` row automaticamente |
-| F1-15 | Auth real + practice flow | Todo el flujo funciona con auth real + servicios mock |
+| F1-15 | Auth real + practice flow (8 steps) | Todo el flujo funciona con auth real + servicios mock |
 | F1-16 | Verificar User object | Todos los campos mapeados: uid, email, displayName, photoURL, plan, etc. |
 
 ### Tests P1 (recomendados)
 
 | Test | Accion | Resultado esperado |
 |---|---|---|
-| F1-02 | Verificar `profiles.market_focus` | Tiene valor 'mexico' (default del trigger) |
+| F1-02 | Verificar `profiles.market_focus` | Tiene valor correcto (null por default) |
 | F1-04 | Registrarse con LinkedIn | Mismo comportamiento que Google |
 | F1-09 | INSERT session con user_id falso | FK violation error |
 | F1-13 | UPDATE `profiles SET plan = 'invalid'` | CHECK constraint error |
-| F1-14 | UPDATE `sr_cards SET interval_step = 5` | CHECK constraint error |
+| F1-14 | Verificar ErrorBoundary | Si hay error de render, muestra fallback, NO pantalla blanca |
 
 ---
 
@@ -143,13 +144,15 @@ Agregar en Supabase Dashboard > Authentication > URL Configuration:
 - Site URL: `https://tu-dominio.com`
 - Redirect URLs: agregar tu dominio de produccion
 
-### 5.2 Considerar: Session recovery en App.tsx
+### 5.2 Auth listener en App.tsx (ya implementado)
 
-> **NOTA:** `onAuthStateChanged` ya esta implementado en `App.tsx` (lineas 102-149).
+> **NOTA:** `onAuthStateChanged` ya esta implementado en `App.tsx`.
 > El listener ya maneja:
+> - `prevAuthUserRef` para trackear transiciones null→user (no race condition)
 > - Auto-navegacion a Dashboard/PracticeSession post-auth
 > - Limpieza de estado en logout
 > - Pending setup flow via `pendingSetupRef`
+> - LanguageTransitionModal post-auth
 >
 > **No necesitas implementar esto** — ya esta hecho. Solo verifica que funcione
 > correctamente con auth real en lugar de mock.
@@ -174,7 +177,18 @@ user_metadata.avatar_url ────────→  photoURL
                                     created_at ←───────── createdAt
 ```
 
-**No se duplican `displayName` ni `email` en la tabla `profiles`** — se leen de `auth.users` directamente. Esto evita desync si el usuario actualiza su perfil de Google.
+**No se duplican `displayName` ni `email` en la tabla `profiles`** — se leen de `auth.users` directamente.
+
+### fetchOrCreateProfile — 4-level fallback
+
+El `SupabaseAuthService` tiene un mecanismo robusto para obtener o crear el profile:
+
+1. **Direct fetch** — intenta leer el profile existente
+2. **Wait for trigger** — espera 800ms y reintenta (por si el trigger aun no ejecuto)
+3. **Client upsert** — intenta crear el profile via upsert directo
+4. **Synthetic profile** — retorna un profile sintetico en memoria (funciona sin tabla)
+
+Esto garantiza que auth funciona incluso si la tabla `profiles` no existe aun.
 
 ---
 
@@ -183,20 +197,23 @@ user_metadata.avatar_url ────────→  photoURL
 ```
 services/index.ts
     │
-    ├── USE_MOCK = true  ──→ TODOS los servicios usan mock
+    ├── VITE_USE_MOCK = "true"  ──→ TODOS los servicios usan mock
     │
-    └── USE_MOCK = false ──→ Lee ADAPTER_MODE por servicio:
-                              │
-                              ├── auth: "supabase" ──→ SupabaseAuthService
-                              ├── conversation: "mock" ──→ MockConversationService
-                              ├── feedback: "mock" ──→ MockFeedbackService
-                              ├── speech: "mock" ──→ MockSpeechService
-                              ├── user: "mock" ──→ MockUserService
-                              ├── payment: "mock" ──→ MockPaymentService
-                              └── spacedRepetition: "mock" ──→ MockSpacedRepetitionService
-
-    Si auth = "supabase" pero env vars faltan:
-      → console.warn + fallback automatico a mock
+    ├── VITE_USE_MOCK = "false" ──→ Lee ADAPTER_MODE por servicio
+    │
+    └── (no set) ──→ Auto-detect via isSupabaseConfigured():
+                       │
+                       ├── Supabase configurado ──→ USE_MOCK = false
+                       │     │
+                       │     ├── auth: "supabase" ──→ SupabaseAuthService (try-catch → MockAuthService)
+                       │     ├── conversation: "mock" ──→ MockConversationService
+                       │     ├── feedback: "mock" ──→ MockFeedbackService
+                       │     ├── speech: "mock" ──→ MockSpeechService
+                       │     ├── user: "mock" ──→ MockUserService
+                       │     ├── payment: "mock" ──→ MockPaymentService
+                       │     └── spacedRepetition: "mock" ──→ MockSpacedRepetitionService
+                       │
+                       └── Supabase NO configurado ──→ USE_MOCK = true → TODOS mock
 ```
 
 Conforme se implementen Fases 2-4, el desarrollador solo cambia el valor en ADAPTER_MODE:
