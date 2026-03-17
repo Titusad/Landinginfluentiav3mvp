@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { Globe, ArrowRight } from "lucide-react";
 import type { LandingLang } from "./landing-i18n";
 
+/* ─── Copy per language ─── */
 const MODAL_COPY = {
   es: {
     title: "¡Todo listo!",
@@ -12,24 +13,24 @@ const MODAL_COPY = {
     flag: "🇪🇸",
     langLabel: "Español",
     cta: "Let's go",
-    footnote: "Puedes cambiar el idioma en cualquier momento desde tu perfil.",
+    footnote: "Puedes cambiar el idioma en cualquier momento.",
   },
   pt: {
     title: "Tudo pronto!",
-    body: "A partir de ahora, a interface estará em",
+    body: "A partir de agora, a interface estará em",
     bodyHighlight: "inglês",
     bodySuffix: "para oferecer uma experiência mais imersiva.",
     subtitle: "Sua prática, coaching e feedback — tudo no idioma que você precisa dominar.",
     flag: "🇧🇷",
     langLabel: "Português",
     cta: "Let's go",
-    footnote: "Você pode mudar o idioma a qualquer momento no seu perfil.",
+    footnote: "Você pode mudar o idioma a qualquer momento.",
   },
 } as const;
 
 /**
- * Post-login modal explaining the language switch to English UI.
- * Shown once after authentication, in the user's landing language.
+ * Post-login modal: language switch notice.
+ * No longer asks for region — auto-detects timezone silently.
  */
 export function LanguageTransitionModal({
   onContinue,
@@ -38,7 +39,8 @@ export function LanguageTransitionModal({
   onContinue: () => void;
   fromLang?: LandingLang;
 }) {
-  const c = MODAL_COPY[fromLang];
+  const langKey = fromLang === "en" ? "es" : fromLang;
+  const c = MODAL_COPY[langKey];
 
   return (
     <motion.div
@@ -86,7 +88,7 @@ export function LanguageTransitionModal({
             <span style={{ fontWeight: 600 }} className="text-[#0f172b]">{c.bodyHighlight}</span>{" "}
             {c.bodySuffix}
           </p>
-          <p className="text-[#62748e] text-sm leading-relaxed mb-8">
+          <p className="text-[#62748e] text-sm leading-relaxed mb-6">
             {c.subtitle}
           </p>
 
@@ -101,10 +103,10 @@ export function LanguageTransitionModal({
             </span>
           </div>
 
-          {/* CTA */}
+          {/* CTA — always enabled, no country selection needed */}
           <motion.button
-            onClick={onContinue}
-            className="w-full bg-[#0f172b] text-white py-4 rounded-full flex items-center justify-center gap-2.5 shadow-lg hover:bg-[#1d293d] transition-colors text-[15px]"
+            onClick={() => onContinue()}
+            className="w-full py-4 rounded-full flex items-center justify-center gap-2.5 shadow-lg transition-all text-[15px] bg-[#0f172b] text-white hover:bg-[#1d293d]"
             style={{ fontWeight: 500 }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}

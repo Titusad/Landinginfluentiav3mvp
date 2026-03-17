@@ -9,16 +9,16 @@
  *    import { assembleSystemPrompt, type AssemblyConfig } from "../prompts";
  *
  *    const result = assembleSystemPrompt({
- *      interlocutor: "client",
+ *      interlocutor: "gatekeeper",
  *      scenario: "Sales pitch for SaaS platform",
- *      marketFocus: "colombia",
  *      includeFirstMessage: true,
+ *      scenarioType: "sales",
  *    });
  *
  *    // result.systemPrompt  → Full assembled prompt
  *    // result.voiceId       → ElevenLabs voice ID
  *    // result.subProfile    → "NEGOTIATOR" | "LEADERSHIP" | null
- *    // result.estimatedTokens → ~1060 (full) or ~200 (mini)
+ *    // result.estimatedTokens → ~1060
  *
  *  Reference: /docs/SYSTEM_PROMPTS.md
  * ══════════════════════════════════════════════════════════════
@@ -35,12 +35,23 @@ export {
 export {
   getPersonaBlock,
   detectSubProfile,
+  INTERLOCUTORS_BY_SCENARIO,
+  DEFAULT_INTERLOCUTOR,
   type InterlocutorType,
   type SubProfileType,
 } from "./personas";
 
 /* ── Regions ── */
-export { getRegionalBlock, type MarketFocus } from "./regions";
+export { getRegionalBlock } from "./regions";
+
+/* ── Locale Detection (replaces marketFocus) ── */
+export {
+  detectLanguageBackground,
+  detectPronunciationMarket,
+  toPronunciationMarket,
+  type LanguageBackground,
+  type PronunciationMarket,
+} from "../locale-detect";
 
 /* ── Voice Mapping ── */
 export {
@@ -55,7 +66,7 @@ export {
   MASTER_SYSTEM_PROMPT,
   OUTPUT_FORMAT_BLOCK,
   FIRST_MESSAGE_BLOCK,
-  MINI_TEMPLATE,
+  ARENA_PHASE_DIRECTIVES,
 } from "./templates";
 
 /* ── Analyst Prompts (Gemini 1.5 Flash — Screens 6 & 7) ── */

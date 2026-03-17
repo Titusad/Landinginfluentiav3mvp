@@ -112,7 +112,6 @@ export function getSupabaseClient(): SupabaseClient {
  */
 export interface ProfileRow {
   id: string;
-  market_focus: "mexico" | "colombia" | null;
   plan: "free" | "per-session";
   plan_status: "active" | "trial" | "expired";
   free_session_used: boolean;
@@ -131,7 +130,6 @@ export interface SessionRow {
   scenario_config: {
     scenario: string;
     interlocutor: string;
-    market_focus?: string;
   };
   system_prompt: string | null;
   voice_id: string | null;

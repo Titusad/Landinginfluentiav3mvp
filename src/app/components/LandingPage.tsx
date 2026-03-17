@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import svgPaths from "../../imports/svg-tv6st9nzh5";
 import {
   Check,
@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Zap,
   Gift,
+  Globe,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { PracticeWidget } from "./PracticeWidget";
@@ -19,24 +20,70 @@ import { LANDING_COPIES, type LandingLang } from "./landing-i18n";
 import { LandingLangProvider } from "./LandingLangContext";
 
 /* ═══════════════ LANGUAGE SWITCHER ═══════════════ */
+const LANG_OPTIONS: { code: LandingLang; label: string; flag: string }[] = [
+  { code: "es", label: "Español", flag: "🇪🇸" },
+  { code: "pt", label: "Português", flag: "🇧🇷" },
+  { code: "en", label: "English", flag: "🇺🇸" },
+];
+
 function LanguageSwitcher({ lang, onChange }: { lang: LandingLang; onChange: (l: LandingLang) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const current = LANG_OPTIONS.find((o) => o.code === lang) || LANG_OPTIONS[0];
+
   return (
-    <div className="flex items-center bg-[#f1f5f9] rounded-full p-0.5 gap-0.5">
-      {(["es", "pt", "en"] as const).map((l) => (
-        <button
-          key={l}
-          onClick={() => onChange(l)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-all ${
-            lang === l
-              ? "bg-white shadow-sm text-[#0f172b]"
-              : "text-[#62748e] hover:text-[#0f172b]"
-          }`}
-          style={{ fontWeight: lang === l ? 600 : 400 }}
-        >
-          <span>{l === "es" ? "🇪🇸" : l === "pt" ? "🇧🇷" : "🇺🇸"}</span>
-          {l.toUpperCase()}
-        </button>
-      ))}
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-[#e2e8f0] bg-white hover:bg-[#f8fafc] transition-all"
+        style={{ fontWeight: 500 }}
+      >
+        <Globe className="w-3.5 h-3.5 text-[#62748e]" />
+        <span>{current.flag}</span>
+        <span className="text-[#334155]">{current.code.toUpperCase()}</span>
+        <ChevronDown
+          className="w-3 h-3 text-[#94a3b8] transition-transform"
+          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-1.5 w-40 rounded-xl border border-[#e2e8f0] bg-white shadow-lg overflow-hidden z-50"
+          >
+            {LANG_OPTIONS.map((opt) => (
+              <button
+                key={opt.code}
+                onClick={() => { onChange(opt.code); setOpen(false); }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs transition-colors ${
+                  lang === opt.code
+                    ? "bg-[#f1f5f9] text-[#0f172b]"
+                    : "text-[#475569] hover:bg-[#f8fafc] hover:text-[#0f172b]"
+                }`}
+                style={{ fontWeight: lang === opt.code ? 600 : 400 }}
+              >
+                <span className="text-sm">{opt.flag}</span>
+                <span className="flex-1 text-left">{opt.label}</span>
+                {lang === opt.code && <Check className="w-3.5 h-3.5 text-[#6366f1]" />}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -61,8 +108,9 @@ export function LandingPage({ onAuthComplete, landingLang, onLangChange }: { onA
     setMobileMenuOpen(false);
   };
 
-  const toggleAuthMode = () =>
+  const toggleAuthMode = () => {
     setAuthMode((prev) => (prev === "login" ? "registro" : "login"));
+  };
 
   /* Lock body scroll when auth modal is open */
   useEffect(() => {
@@ -309,18 +357,19 @@ export function LandingPage({ onAuthComplete, landingLang, onLangChange }: { onA
 
           {/* Free session banner */}
           <div
-            className="rounded-2xl p-6 md:p-8 mb-10 max-w-5xl mx-auto border border-[#50C878]/20"
+            className="rounded-2xl px-6 py-4 md:px-8 md:py-5 mb-10 max-w-5xl mx-auto border border-[#50C878]/20"
             style={{ background: "linear-gradient(135deg, rgba(80,200,120,0.08), rgba(0,211,243,0.06))" }}
           >
-            <div className="flex flex-col md:flex-row items-center gap-5">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #00D3F3, #50C878)" }}>
-                <Gift className="w-7 h-7 text-white" />
-              </div>
-              <div className="flex-1 text-center md:text-left">
-                <h3 className="text-lg text-gray-900 mb-1" style={{ fontWeight: 600 }}>{copy.pricing.freeSession.title}</h3>
-                <p className="text-sm text-[#4B505B]">{copy.pricing.freeSession.desc}</p>
-              </div>
-              <div className="flex flex-wrap justify-center gap-3 md:gap-4">
+            <div className="flex flex-col items-center text-center gap-2.5">
+              {/* Row 1: Title */}
+              <h3 className="text-lg text-gray-900" style={{ fontWeight: 600 }}>{copy.pricing.freeSession.title}</h3>
+              {/* Row 2: Description */}
+              <p className="text-sm text-[#4B505B]">{copy.pricing.freeSession.desc}</p>
+              {/* Row 3: Icon + Features */}
+              <div className="flex items-center justify-center gap-4 flex-wrap">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #00D3F3, #50C878)" }}>
+                  <Gift className="w-4.5 h-4.5 text-white" />
+                </div>
                 {copy.pricing.freeSession.features.map((f) => (
                   <span key={f} className="flex items-center gap-1.5 text-xs text-[#4B505B]">
                     <CheckIcon color="#50C878" />
@@ -328,8 +377,9 @@ export function LandingPage({ onAuthComplete, landingLang, onLangChange }: { onA
                   </span>
                 ))}
               </div>
+              {/* Row 4: CTA */}
               <button
-                className="shrink-0 px-6 py-3 rounded-full text-sm text-white transition-colors"
+                className="px-6 py-2.5 rounded-full text-sm text-white transition-colors mt-0.5"
                 style={{ fontWeight: 500, background: "linear-gradient(135deg, #00D3F3, #50C878)" }}
                 onClick={() => openAuth("registro", "cta")}
               >

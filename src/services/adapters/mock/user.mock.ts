@@ -28,7 +28,6 @@ export class MockUserService implements IUserService {
         plan: "free",
         freeSessionUsed: false,
         sessionsCompleted: 3,
-        marketFocus: "mexico",
         createdAt: "2026-02-10T08:00:00Z",
       };
     }

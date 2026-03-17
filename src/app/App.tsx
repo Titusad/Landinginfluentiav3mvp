@@ -1,20 +1,24 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LandingPage } from "./components/LandingPage";
-import { DesignSystemPage } from "./components/DesignSystemPage";
-import { PracticeSessionPage } from "./components/PracticeSessionPage";
-import { DashboardPage } from "./components/DashboardPage";
-import { PracticeHistoryPage } from "./components/PracticeHistoryPage";
+/* Route-based code splitting — heavy pages loaded on demand */
+const DesignSystemPage = lazy(() => import("./components/DesignSystemPage").then(m => ({ default: m.DesignSystemPage })));
+const PracticeSessionPage = lazy(() => import("./components/PracticeSessionPage").then(m => ({ default: m.PracticeSessionPage })));
+const DashboardPage = lazy(() => import("./components/DashboardPage").then(m => ({ default: m.DashboardPage })));
+const PracticeHistoryPage = lazy(() => import("./components/PracticeHistoryPage").then(m => ({ default: m.PracticeHistoryPage })));
 import { LoadingScreen } from "./components/LoadingScreen";
 import { LanguageTransitionModal } from "./components/LanguageTransitionModal";
 import { authService } from "../services";
-import type { User, OnboardingProfile, ScenarioType } from "../services/types";
+import type { User, OnboardingProfile, ScenarioType, CreditPack, SessionSummary, TurnPronunciationData, ScriptSection, InterviewBriefingData } from "../services/types";
 import type { SetupModalResult } from "./components/PracticeWidget";
 import { AnimatePresence } from "motion/react";
 import type { LandingLang } from "./components/landing-i18n";
 import { CreditUpsellModal } from "./components/CreditUpsellModal";
 import { useUsageGating } from "./hooks/useUsageGating";
-import type { CreditPack } from "../services/types";
+import type { MarketFocus } from "../services/prompts";
+import { DevPreviewMenu, getDevMockData } from "./components/DevPreviewMenu";
+import type { Step } from "./components/shared/session-types";
+import type { RealFeedbackData } from "./components/session/ConversationFeedback";
 
 /* ─── App-level page types ─── */
 type Page =
@@ -33,24 +37,36 @@ interface FlowState {
   guidedFields?: Record<string, string>;
 }
 
+/* ─── Dev Preview state ─── */
+interface DevPreviewState {
+  step?: Step;
+  scenarioType?: ScenarioType;
+  mockFeedback?: RealFeedbackData | null;
+  mockSummary?: SessionSummary | null;
+  mockPronData?: TurnPronunciationData[];
+  mockScript?: ScriptSection[] | null;
+  mockInterviewBriefing?: InterviewBriefingData | null;
+}
+
 export default function App() {
+  /* ─── DEV MODE: sessionStorage keys for OAuth redirect recovery ─── */
+  const OAUTH_PENDING_KEY = "influentia_oauth_pending";
+  const PENDING_SETUP_KEY = "influentia_pending_setup";
+
   const [page, setPage] = useState<Page>(() => {
+    // DEV MODE: always start from landing.
+    // Clear stale app-level hashes (but preserve Supabase #access_token fragments)
     const hash = window.location.hash;
-    if (hash === "#design-system") return "design-system";
-    if (hash === "#dashboard") return "dashboard";
-    if (hash === "#practice-session") return "practice-session";
-    if (hash === "#practice-history") return "practice-history";
+    if (hash === "#design-system") return "design-system"; // keep design-system shortcut
+    if (["#dashboard", "#practice-session", "#practice-history"].includes(hash)) {
+      window.location.hash = "";
+    }
     return "landing";
   });
 
-  const [flowState, setFlowState] = useState<FlowState>(() => {
-    if (window.location.hash === "#dashboard" || window.location.hash === "#practice-history") {
-      return {
-        scenario: "Sales pitch: Producto B2B SaaS para LATAM",
-        interlocutor: "VP of Sales",
-      };
-    }
-    return { scenario: "", interlocutor: "" };
+  const [flowState, setFlowState] = useState<FlowState>({
+    scenario: "",
+    interlocutor: "",
   });
 
   /* ─── Auth state ─── */
@@ -87,6 +103,95 @@ export default function App() {
     return "es";
   });
 
+  /* ─── Market focus (region) — persisted in localStorage ─── */
+  const [marketFocus, setMarketFocus] = useState<MarketFocus | null>(() => {
+    try {
+      const saved = localStorage.getItem("influentia_market_focus");
+      if (saved === "mexico" || saved === "colombia" || saved === "brazil") return saved;
+    } catch { /* ignore */ }
+    return null;
+  });
+
+  /* ─── Dev Preview state ─── */
+  const [devPreview, setDevPreview] = useState<DevPreviewState | null>(null);
+
+  const handleDevNavigate = (optionId: string) => {
+    // Reset dev preview
+    setDevPreview(null);
+
+    // Pages
+    if (optionId === "landing") {
+      setPage("landing");
+      window.location.hash = "";
+      return;
+    }
+    if (optionId === "dashboard") {
+      setFlowState({
+        scenario: "Sales pitch: Producto B2B SaaS para LATAM",
+        interlocutor: "decision_maker",
+        scenarioType: "sales" as ScenarioType,
+      });
+      setPage("dashboard");
+      window.location.hash = "#dashboard";
+      return;
+    }
+    if (optionId === "practice-history") {
+      setFlowState({
+        scenario: "Sales pitch: Producto B2B SaaS para LATAM",
+        interlocutor: "decision_maker",
+        scenarioType: "sales" as ScenarioType,
+      });
+      setPage("practice-history");
+      window.location.hash = "#practice-history";
+      return;
+    }
+
+    // Practice Session steps (ps:*)
+    if (optionId.startsWith("ps:")) {
+      const isInterview = optionId.includes("interview");
+      const mockData = getDevMockData(isInterview);
+      const sType: ScenarioType = isInterview ? "interview" : "sales";
+
+      // Determine the step from the option ID
+      let step: Step = "extra-context";
+      if (optionId.includes("extra-context")) step = "extra-context";
+      else if (optionId.includes("generating-script")) step = "generating-script";
+      else if (optionId.includes("pre-briefing")) step = "pre-briefing";
+      else if (optionId.includes("conversation-feedback")) step = "conversation-feedback";
+      else if (optionId.includes("session-recap")) step = "session-recap";
+
+      setFlowState({
+        scenario: isInterview
+          ? "Technical Interview: Senior Frontend Developer at Toptal"
+          : "Sales pitch: Producto B2B SaaS para LATAM",
+        interlocutor: isInterview ? "recruiter" : "decision_maker",
+        scenarioType: sType,
+      });
+
+      setDevPreview({
+        step,
+        scenarioType: sType,
+        mockFeedback: {
+          strengths: mockData.feedback.strengths,
+          opportunities: mockData.feedback.opportunities,
+          beforeAfter: mockData.feedback.beforeAfter,
+          pillarScores: mockData.feedback.pillarScores,
+          professionalProficiency: mockData.feedback.professionalProficiency,
+          contentScores: mockData.feedback.contentScores,
+          interviewReadinessScore: mockData.feedback.interviewReadinessScore,
+          contentInsights: mockData.feedback.contentInsights,
+        },
+        mockSummary: mockData.summary,
+        mockPronData: mockData.pronData,
+        mockScript: mockData.script,
+        mockInterviewBriefing: mockData.interviewBriefing,
+      });
+
+      setPage("practice-session");
+      window.location.hash = "#practice-session";
+    }
+  };
+
   const handleLangChange = (lang: LandingLang) => {
     setLandingLang(lang);
     try {
@@ -94,54 +199,166 @@ export default function App() {
     } catch { /* ignore */ }
   };
 
-  /* ─── Auth state listener (mock in prototype mode) ─── */
+  /* ─── Auth state listener ─── */
+  /*
+   * DEV MODE: Forces a clean start every time.
+   *
+   * Flow A — Fresh visit (no OAuth return):
+   *   1. No `influentia_oauth_pending` flag → sign out stale session
+   *   2. Auth listener fires with null → stays on landing
+   *
+   * Flow B — Returning from Google OAuth redirect:
+   *   1. `influentia_oauth_pending` flag exists → DON'T sign out
+   *   2. Supabase detects session from URL fragment
+   *   3. Auth listener fires with user → reads setup from sessionStorage
+   *   4. Shows Language Modal → navigates to Practice Session
+   */
   useEffect(() => {
-    const unsubscribe = authService.onAuthStateChanged((user) => {
-      const hadUser = prevAuthUserRef.current !== null;
-      prevAuthUserRef.current = user;
-      setAuthUser(user);
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
 
-      if (user && !hadUser) {
-        setPage((currentPage) => {
-          if (currentPage === "landing") {
-            const pending = pendingSetupRef.current;
-            if (pending) {
-              setFlowState({
-                scenario: pending.scenario,
-                interlocutor: pending.interlocutor,
-                scenarioType: pending.scenarioType,
-                guidedFields: pending.guidedFields,
-              });
-              pendingSetupRef.current = null;
-              window.location.hash = "#practice-session";
-              return "practice-session";
-            }
-            setFlowState((prev) =>
-              prev.scenario
-                ? prev
-                : {
-                    scenario: "Sales pitch: Producto B2B SaaS para LATAM",
-                    interlocutor: "VP of Sales",
-                  }
-            );
-            window.location.hash = "#dashboard";
-            return "dashboard";
+    const init = async () => {
+      const isOAuthReturn = sessionStorage.getItem(OAUTH_PENDING_KEY) === "true";
+
+      // Flow A: Clear stale Supabase session so user always starts fresh
+      // Optimized: use local session check instead of network signOut call
+      if (!isOAuthReturn) {
+        try {
+          const supabase = (await import("../services/supabase")).getSupabaseClient();
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            await authService.signOut();
           }
-          return currentPage;
-        });
+        } catch { /* ignore — no session to clear */ }
       }
 
-      if (!user && hadUser) {
-        setFlowState({ scenario: "", interlocutor: "" });
-        setPage("landing");
-        window.location.hash = "";
-      }
-    });
+      if (cancelled) return;
 
-    return unsubscribe;
+      // Now subscribe to auth state changes
+      unsubscribe = authService.onAuthStateChanged((user) => {
+        const hadUser = prevAuthUserRef.current !== null;
+        prevAuthUserRef.current = user;
+        setAuthUser(user);
+
+        if (user && !hadUser) {
+          // Check if returning from OAuth with persisted setup
+          const pendingRaw = sessionStorage.getItem(PENDING_SETUP_KEY);
+          const isReturning = sessionStorage.getItem(OAUTH_PENDING_KEY) === "true";
+
+          if (isReturning && pendingRaw) {
+            // Flow B: OAuth return — recover setup and navigate to practice
+            sessionStorage.removeItem(OAUTH_PENDING_KEY);
+            sessionStorage.removeItem(PENDING_SETUP_KEY);
+
+            try {
+              const setup = JSON.parse(pendingRaw);
+              setFlowState({
+                scenario: setup.scenario || "",
+                interlocutor: setup.interlocutor || "recruiter",
+                scenarioType: setup.scenarioType || "interview",
+                guidedFields: setup.guidedFields,
+              });
+
+              // Show language modal (or skip for EN users)
+              const savedLang = localStorage.getItem("influentia_lang") || "es";
+              pendingNavigationRef.current = () => {
+                setPage("practice-session");
+                window.location.hash = "#practice-session";
+              };
+              if (savedLang === "en") {
+                pendingNavigationRef.current();
+                pendingNavigationRef.current = null;
+              } else {
+                setShowLangModal(true);
+              }
+            } catch (err) {
+              console.warn("[inFluentia] Failed to parse pending setup:", err);
+              setPage("dashboard");
+              window.location.hash = "#dashboard";
+            }
+            return;
+          }
+
+          if (isReturning && !pendingRaw) {
+            // OAuth return but no setup data — go to dashboard as fallback
+            sessionStorage.removeItem(OAUTH_PENDING_KEY);
+            setFlowState({
+              scenario: "Sales pitch: Producto B2B SaaS para LATAM",
+              interlocutor: "decision_maker",
+              scenarioType: "sales" as ScenarioType,
+            });
+            setPage("dashboard");
+            window.location.hash = "#dashboard";
+            return;
+          }
+
+          // Mock auth path: user appeared via signIn() (no redirect).
+          // Check sessionStorage (PracticeSetupModal saves before signIn)
+          const mockPendingRaw = sessionStorage.getItem(PENDING_SETUP_KEY);
+          if (mockPendingRaw) {
+            sessionStorage.removeItem(OAUTH_PENDING_KEY);
+            sessionStorage.removeItem(PENDING_SETUP_KEY);
+
+            try {
+              const setup = JSON.parse(mockPendingRaw);
+              setFlowState({
+                scenario: setup.scenario || "",
+                interlocutor: setup.interlocutor || "recruiter",
+                scenarioType: setup.scenarioType || "interview",
+                guidedFields: setup.guidedFields,
+              });
+
+              const savedLang = localStorage.getItem("influentia_lang") || "es";
+              pendingNavigationRef.current = () => {
+                setPage("practice-session");
+                window.location.hash = "#practice-session";
+              };
+              if (savedLang === "en") {
+                pendingNavigationRef.current();
+                pendingNavigationRef.current = null;
+              } else {
+                setShowLangModal(true);
+              }
+            } catch {
+              setPage("dashboard");
+              window.location.hash = "#dashboard";
+            }
+            return;
+          }
+
+          // No pending setup at all — stay on current page (don't auto-navigate)
+          // This prevents stale sessions from hijacking the flow
+        }
+
+        if (!user && hadUser) {
+          setFlowState({ scenario: "", interlocutor: "" });
+          setPage("landing");
+          window.location.hash = "";
+        }
+      });
+    };
+
+    init();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, []);
 
   /* ─── Hash-based routing ─── */
+  useEffect(() => {
+    // Prevent browser from restoring scroll position on hash navigation
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    // Also scroll any overflow containers (redundant safety net)
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    });
+  }, [page]);
+
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash;
@@ -151,9 +368,10 @@ export default function App() {
           prev.scenario
             ? prev
             : {
-                scenario: "Sales pitch: Producto B2B SaaS para LATAM",
-                interlocutor: "VP of Sales",
-              }
+              scenario: "Sales pitch: Producto B2B SaaS para LATAM",
+              interlocutor: "decision_maker",
+              scenarioType: "sales" as ScenarioType,
+            }
         );
         setPage("dashboard");
       } else if (hash === "#practice-session") setPage("practice-session");
@@ -172,9 +390,10 @@ export default function App() {
         prev.scenario
           ? prev
           : {
-              scenario: "Sales pitch: Producto B2B SaaS para LATAM",
-              interlocutor: "VP of Sales",
-            }
+            scenario: "Sales pitch: Producto B2B SaaS para LATAM",
+            interlocutor: "decision_maker",
+            scenarioType: "sales" as ScenarioType,
+          }
       );
       pendingNavigationRef.current = () => {
         setPage("dashboard");
@@ -233,33 +452,30 @@ export default function App() {
   };
 
   const handleNewPractice = () => {
-    const gate = usageGating.canStartSession();
-    if (!gate.allowed) {
-      pendingNewSessionRef.current = () => {
-        setFlowState({ scenario: "", interlocutor: "" });
-        setPage("landing");
-        window.location.hash = "";
-      };
-      setShowNewSessionPaywall(true);
-      return;
-    }
+    // DEV MODE: bypass usage gating — always allow
     setFlowState({ scenario: "", interlocutor: "" });
     setPage("landing");
     window.location.hash = "";
   };
 
-  const handleStartNewPractice = (_scenario: string) => {
-    const gate = usageGating.canStartSession();
-    if (!gate.allowed) {
-      pendingNewSessionRef.current = () => {
-        setPage("landing");
-        window.location.hash = "";
-      };
-      setShowNewSessionPaywall(true);
-      return;
+  const handleStartNewPractice = (scenario: string, scenarioType?: string) => {
+    // DEV MODE: bypass usage gating — always allow
+    if (scenarioType === "interview" || scenarioType === "sales") {
+      // Dashboard → direct to practice-session (skip widget)
+      // No guidedFields: PracticeSessionPage will show role field in ExtraContext
+      const defaultInterlocutor = scenarioType === "interview" ? "recruiter" : "decision_maker";
+      setFlowState({
+        scenario,
+        interlocutor: defaultInterlocutor,
+        scenarioType: scenarioType as ScenarioType,
+        // No guidedFields — signals "from Dashboard" flow
+      });
+      setPage("practice-session");
+      window.location.hash = "#practice-session";
+    } else {
+      setPage("landing");
+      window.location.hash = "";
     }
-    setPage("landing");
-    window.location.hash = "";
   };
 
   const handleNavigateToHistory = () => {
@@ -274,77 +490,99 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <div className="size-full">
-      {page === "design-system" && <DesignSystemPage />}
-      {page === "landing" && (
-        <LandingPage onAuthComplete={handleAuthComplete} landingLang={landingLang} onLangChange={handleLangChange} />
-      )}
-      {page === "loading" && <LoadingScreen scenario={flowState.scenario} />}
-      {page === "practice-session" && (
-        <PracticeSessionPage
-          scenario={flowState.scenario}
-          interlocutor={flowState.interlocutor || "Client"}
-          scenarioType={flowState.scenarioType}
-          guidedFields={flowState.guidedFields}
-          onFinish={handlePracticeFinish}
-          onNewPractice={handleNewPractice}
-          userPlan={authUser?.plan}
-        />
-      )}
-      {page === "dashboard" && (
-        <DashboardPage
-          userName={authUser?.displayName}
-          firstPracticeScenario={flowState.scenario}
-          firstPracticeInterlocutor={flowState.interlocutor}
-          onLogout={handleBackToLanding}
-          onNavigateToHistory={handleNavigateToHistory}
-          onStartNewPractice={handleStartNewPractice}
-          userProfile={userProfile}
-          onProfileUpdate={handleProfileUpdate}
-          lang={landingLang}
-        />
-      )}
-      {page === "practice-history" && (
-        <PracticeHistoryPage
-          userName={authUser?.displayName}
-          firstPracticeScenario={flowState.scenario}
-          firstPracticeInterlocutor={flowState.interlocutor}
-          onBack={handleBackToDashboard}
-          onLogout={handleBackToLanding}
-        />
-      )}
-      <AnimatePresence>
-        {showLangModal && (
-          <LanguageTransitionModal
-            fromLang={landingLang}
-            onContinue={() => {
-              setShowLangModal(false);
-              pendingNavigationRef.current?.();
-              pendingNavigationRef.current = null;
-            }}
+      <div className="size-full">
+        <Suspense fallback={<LoadingScreen scenario="" />}>
+        {page === "design-system" && <DesignSystemPage />}
+        {page === "landing" && (
+          <LandingPage onAuthComplete={handleAuthComplete} landingLang={landingLang} onLangChange={handleLangChange} />
+        )}
+        {page === "loading" && <LoadingScreen scenario={flowState.scenario} />}
+        {page === "practice-session" && (
+          <PracticeSessionPage
+            scenario={flowState.scenario}
+            interlocutor={flowState.interlocutor || "recruiter"}
+            scenarioType={flowState.scenarioType || "interview"}
+            guidedFields={flowState.guidedFields}
+            marketFocus={marketFocus}
+            onFinish={handlePracticeFinish}
+            onNewPractice={handleNewPractice}
+            userPlan={authUser?.plan}
+            userProfile={userProfile}
+            onProfileUpdate={handleProfileUpdate}
+            devInitialStep={devPreview?.step}
+            devMockFeedback={devPreview?.mockFeedback}
+            devMockSummary={devPreview?.mockSummary}
+            devMockPronData={devPreview?.mockPronData}
+            devMockScript={devPreview?.mockScript}
+            devMockInterviewBriefing={devPreview?.mockInterviewBriefing}
           />
         )}
-      </AnimatePresence>
+        {page === "dashboard" && (
+          <DashboardPage
+            userName={authUser?.displayName}
+            firstPracticeScenario={flowState.scenario}
+            firstPracticeInterlocutor={flowState.interlocutor}
+            onLogout={handleBackToLanding}
+            onNavigateToHistory={handleNavigateToHistory}
+            onStartNewPractice={handleStartNewPractice}
+            userProfile={userProfile}
+            onProfileUpdate={handleProfileUpdate}
+            lang={landingLang}
+          />
+        )}
+        {page === "practice-history" && (
+          <PracticeHistoryPage
+            userName={authUser?.displayName}
+            firstPracticeScenario={flowState.scenario}
+            firstPracticeInterlocutor={flowState.interlocutor}
+            onBack={handleBackToDashboard}
+            onLogout={handleBackToLanding}
+          />
+        )}
+        <AnimatePresence>
+          {showLangModal && (
+            <LanguageTransitionModal
+              fromLang={landingLang}
+              onContinue={(selectedMarketFocus) => {
+                setMarketFocus(selectedMarketFocus);
+                try {
+                  if (selectedMarketFocus) {
+                    localStorage.setItem("influentia_market_focus", selectedMarketFocus);
+                  } else {
+                    localStorage.removeItem("influentia_market_focus");
+                  }
+                } catch { /* ignore */ }
+                setShowLangModal(false);
+                pendingNavigationRef.current?.();
+                pendingNavigationRef.current = null;
+              }}
+            />
+          )}
+        </AnimatePresence>
 
-      {/* New-session paywall modal */}
-      <CreditUpsellModal
-        open={showNewSessionPaywall}
-        onClose={() => {
-          setShowNewSessionPaywall(false);
-          pendingNewSessionRef.current = null;
-        }}
-        onPurchaseComplete={(_pack: CreditPack, creditsAdded: number) => {
-          usageGating.addCredits(creditsAdded);
-          setShowNewSessionPaywall(false);
-          // After purchase, proceed to new session
-          pendingNewSessionRef.current?.();
-          pendingNewSessionRef.current = null;
-        }}
-        paywallReason="new-session"
-        creditsRemaining={usageGating.credits}
-        lang={landingLang}
-      />
-    </div>
+        {/* New-session paywall modal */}
+        <CreditUpsellModal
+          open={showNewSessionPaywall}
+          onClose={() => {
+            setShowNewSessionPaywall(false);
+            pendingNewSessionRef.current = null;
+          }}
+          onPurchaseComplete={(_pack: CreditPack, creditsAdded: number) => {
+            usageGating.addCredits(creditsAdded);
+            setShowNewSessionPaywall(false);
+            // After purchase, proceed to new session
+            pendingNewSessionRef.current?.();
+            pendingNewSessionRef.current = null;
+          }}
+          paywallReason="new-session"
+          creditsRemaining={usageGating.credits}
+          lang={landingLang}
+        />
+        </Suspense>
+
+        {/* Dev Preview Menu — floating dropdown for rapid UI testing */}
+        <DevPreviewMenu onNavigate={handleDevNavigate} />
+      </div>
     </ErrorBoundary>
   );
 }

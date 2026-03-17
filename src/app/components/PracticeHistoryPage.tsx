@@ -345,20 +345,6 @@ export function PracticeHistoryPage({
               {/* Report content */}
               <SessionReport
                 scenarioType={detectedType}
-                strategyPillars={[
-                  {
-                    summary: "Lead with quantified impact from past achievements",
-                    why: "Concrete numbers build instant credibility",
-                    how: "Use the STAR framework with specific metrics",
-                    result: "Interviewer sees you as a proven performer",
-                  },
-                  {
-                    summary: "Differentiate through unique cross-functional expertise",
-                    why: "Uniqueness creates a memorable positioning",
-                    how: "Connect your unique background to their pain points",
-                    result: "You stand out from equally qualified candidates",
-                  },
-                ]}
                 guidedFields={{}}
                 onFinish={() => setViewingReport(null)}
                 finishLabel="Back to history"

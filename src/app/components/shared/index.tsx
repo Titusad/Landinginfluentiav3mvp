@@ -992,14 +992,37 @@ const ANALYSIS_CONFIGS: Record<string, AnalysisConfig> = {
 export function AnalyzingScreen({
   variant = "feedback",
   onComplete,
+  canComplete = true,
 }: {
   variant?: "feedback" | "script" | "results" | "generating-script";
   onComplete: () => void;
+  canComplete?: boolean;
 }) {
   const config = ANALYSIS_CONFIGS[variant];
   const [activeStep, setActiveStep] = useState(0);
   const [progress, setProgress] = useState(0);
   const [affirmationIdx, setAffirmationIdx] = useState(0);
+  const [animTimerDone, setAnimTimerDone] = useState(false);
+  const canCompleteRef = useRef(canComplete);
+
+  /* Keep ref in sync */
+  useEffect(() => {
+    canCompleteRef.current = canComplete;
+  }, [canComplete]);
+
+  /* When canComplete flips to true AND animation timer already finished → fire onComplete */
+  useEffect(() => {
+    if (animTimerDone && canComplete) {
+      onComplete();
+    }
+  }, [animTimerDone, canComplete, onComplete]);
+
+  /* When canComplete flips true, animate progress to 100% */
+  useEffect(() => {
+    if (canComplete && progress >= 92) {
+      setProgress(100);
+    }
+  }, [canComplete, progress >= 92]);
 
   useEffect(() => {
     // Step progression
@@ -1012,15 +1035,15 @@ export function AnalyzingScreen({
       }
     });
 
-    // Smooth progress bar
+    // Smooth progress bar — cap at 92% if canComplete is not yet true
     const totalDuration = config.steps.reduce((sum, s) => sum + s.duration, 0);
     const interval = 40;
     let elapsed = 0;
     const progressTimer = setInterval(() => {
       elapsed += interval;
-      const pct = Math.min((elapsed / totalDuration) * 100, 100);
-      setProgress(pct);
-      if (pct >= 100) clearInterval(progressTimer);
+      const rawPct = Math.min((elapsed / totalDuration) * 100, 100);
+      setProgress(canCompleteRef.current ? rawPct : Math.min(rawPct, 92));
+      if (rawPct >= 100) clearInterval(progressTimer);
     }, interval);
 
     // Affirmation rotation — switch every ~3.5s so user can read
@@ -1028,9 +1051,9 @@ export function AnalyzingScreen({
       setAffirmationIdx((prev) => (prev + 1) % config.affirmations.length);
     }, 3500);
 
-    // Auto-advance
+    // Mark animation timer done (but don't auto-advance — useEffect above handles that)
     const finishTimer = setTimeout(() => {
-      onComplete();
+      setAnimTimerDone(true);
     }, totalDuration + 400);
 
     return () => {
@@ -1039,7 +1062,7 @@ export function AnalyzingScreen({
       clearInterval(affirmationTimer);
       clearTimeout(finishTimer);
     };
-  }, [onComplete]);
+  }, []);
 
   return (
     <div

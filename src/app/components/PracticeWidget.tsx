@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { authService } from "../../services";
@@ -6,22 +6,24 @@ import type { AuthProvider, ScenarioType } from "../../services/types";
 import { isAuthError } from "../../services/errors";
 import { useLandingCopy } from "./LandingLangContext";
 import { ArrowRight, Sparkles, X, Loader2, Check, ArrowLeft } from "lucide-react";
-import { Mic, Target, UserRound, Users, Briefcase, UserCheck } from "lucide-react";
+import { Mic, Target } from "lucide-react";
 import { SmoothHeight } from "./shared";
+import {
+  DEFAULT_INTERLOCUTOR,
+  type InterlocutorType,
+} from "../../services/prompts";
 
 /* ─── Scenario Type Data (used by PracticeSetupModal) ─── */
 interface ScenarioOption {
   id: ScenarioType;
   label: string;
   icon: typeof Target;
-  defaultInterlocutor: InterlocutorId;
+  defaultInterlocutor: InterlocutorType;
 }
 
-type InterlocutorId = "client" | "manager" | "recruiter" | "peer";
-
 const SCENARIO_TYPES: ScenarioOption[] = [
-  { id: "interview", label: "Entrevista", icon: Mic, defaultInterlocutor: "recruiter" },
-  { id: "sales", label: "Ventas", icon: Target, defaultInterlocutor: "client" },
+  { id: "interview", label: "Entrevista", icon: Mic, defaultInterlocutor: DEFAULT_INTERLOCUTOR.interview },
+  { id: "sales", label: "Ventas", icon: Target, defaultInterlocutor: DEFAULT_INTERLOCUTOR.sales },
 ];
 
 /* ─── Guided Field shape (used by PracticeSetupModal with i18n) ─── */
@@ -62,7 +64,7 @@ function GoogleIcon() {
 export interface SetupModalResult {
   scenario: string;
   scenarioType: ScenarioType;
-  interlocutor: InterlocutorId;
+  interlocutor: InterlocutorType;
   guidedFields: Record<string, string>;
 }
 
@@ -78,19 +80,11 @@ function PracticeSetupModal({
   const { copy } = useLandingCopy();
   const sm = copy.setupModal;
 
-  /* ── Dynamic interlocutor labels ── */
-  const interlocutors: { id: InterlocutorId; label: string; sublabel: string; icon: typeof Users }[] = [
-    { id: "client", label: sm.interlocutors.client, sublabel: sm.interlocutors.clientSub, icon: Users },
-    { id: "manager", label: sm.interlocutors.manager, sublabel: sm.interlocutors.managerSub, icon: Briefcase },
-    { id: "recruiter", label: sm.interlocutors.recruiter, sublabel: sm.interlocutors.recruiterSub, icon: UserCheck },
-    { id: "peer", label: sm.interlocutors.peer, sublabel: sm.interlocutors.peerSub, icon: UserRound },
-  ];
-
   /* ── Dynamic guided fields ── */
   const guidedFieldDefs: Record<string, GuidedField[]> = {
     interview: [
       { key: "role", label: sm.guidedFields.interview.role, placeholder: sm.guidedFields.interview.rolePlaceholder },
-      { key: "strength", label: sm.guidedFields.interview.strength, placeholder: sm.guidedFields.interview.strengthPlaceholder },
+      { key: "company", label: sm.guidedFields.interview.company, placeholder: sm.guidedFields.interview.companyPlaceholder },
     ],
     sales: [
       { key: "product", label: sm.guidedFields.sales.product, placeholder: sm.guidedFields.sales.productPlaceholder },
@@ -102,42 +96,37 @@ function PracticeSetupModal({
   const detectedType = detectScenarioFromInput(scenario);
 
   const [selectedScenario, setSelectedScenario] = useState<ScenarioType | null>(detectedType);
-  const [selectedInterlocutor, setSelectedInterlocutor] = useState<InterlocutorId | null>(() => {
-    if (detectedType) {
-      return SCENARIO_TYPES.find((s) => s.id === detectedType)?.defaultInterlocutor ?? null;
-    }
-    return null;
-  });
-  const [interlocutorOverridden, setInterlocutorOverridden] = useState(false);
+
+  /* ── Interlocutor auto-derived from scenario type (no user selector) ── */
+  const selectedInterlocutor: InterlocutorType | null = selectedScenario
+    ? DEFAULT_INTERLOCUTOR[selectedScenario]
+    : null;
 
   const [guidedValues, setGuidedValues] = useState<Record<string, string>>({});
   const [loadingProvider, setLoadingProvider] = useState<AuthProvider | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
-  const [modalStep, setModalStep] = useState<"interlocutor" | "context" | "ready">("interlocutor");
+  const [modalStep, setModalStep] = useState<"context" | "ready">("context");
 
-  /* ── Auto-select interlocutor when scenario changes ── */
-  useEffect(() => {
-    if (selectedScenario && !interlocutorOverridden) {
-      const card = SCENARIO_TYPES.find((s) => s.id === selectedScenario);
-      if (card) setSelectedInterlocutor(card.defaultInterlocutor);
-    }
-  }, [selectedScenario, interlocutorOverridden]);
+  /* ── Handle scenario type change ── */
+  const handleScenarioChange = (newScenario: ScenarioType) => {
+    if (newScenario === selectedScenario) return;
+    setSelectedScenario(newScenario);
+    setGuidedValues({});
+  };
 
-  /* ── Compute progress steps ── */
+  /* ── Compute progress steps (2 steps now) ── */
   const currentFields = selectedScenario ? guidedFieldDefs[selectedScenario] : [];
   const hasAnyGuidedInput = currentFields.some(
     (f) => (guidedValues[f.key] ?? "").trim().length > 0
   );
 
-  const STEP_ORDER: (typeof modalStep)[] = ["interlocutor", "context", "ready"];
+  const STEP_ORDER: (typeof modalStep)[] = ["context", "ready"];
   const currentStepIdx = STEP_ORDER.indexOf(modalStep);
 
   const progressSteps = [
     { label: sm.stepLabels[0], done: currentStepIdx > 0 },
-    { label: sm.stepLabels[1], done: currentStepIdx > 1 },
-    { label: sm.stepLabels[2], done: modalStep === "ready" },
+    { label: sm.stepLabels[1], done: modalStep === "ready" },
   ];
-  const completedCount = progressSteps.filter((s) => s.done).length;
 
   /* ── Validation ── */
   const canAuth = selectedScenario && selectedInterlocutor && hasAnyGuidedInput;
@@ -149,20 +138,26 @@ function PracticeSetupModal({
     setInlineError(null);
 
     try {
-      await authService.signIn(provider);
-      setLoadingProvider(null);
-      onClose();
-      onAuthComplete?.(
-        {
+      // DEV MODE: Persist setup in sessionStorage so it survives OAuth redirect
+      try {
+        sessionStorage.setItem("influentia_pending_setup", JSON.stringify({
           scenario,
           scenarioType: selectedScenario,
           interlocutor: selectedInterlocutor,
           guidedFields: { ...guidedValues },
-        },
-        "registro"
-      );
+        }));
+        sessionStorage.setItem("influentia_oauth_pending", "true");
+      } catch { /* ignore */ }
+
+      await authService.signIn(provider);
+      setLoadingProvider(null);
+      onClose();
     } catch (err) {
       setLoadingProvider(null);
+      try {
+        sessionStorage.removeItem("influentia_pending_setup");
+        sessionStorage.removeItem("influentia_oauth_pending");
+      } catch { /* ignore */ }
       if (isAuthError(err)) {
         setInlineError(err.userMessage);
       } else {
@@ -170,10 +165,6 @@ function PracticeSetupModal({
       }
     }
   };
-
-  /* ── Selected scenario/interlocutor labels ── */
-  const scenarioOption = SCENARIO_TYPES.find((s) => s.id === selectedScenario);
-  const interlocutorOption = interlocutors.find((i) => i.id === selectedInterlocutor);
 
   return (
     <motion.div
@@ -204,7 +195,7 @@ function PracticeSetupModal({
         </button>
 
         <div className="px-12 pt-10 pb-6">
-          {/* ── Endowed Progress Stepper ── */}
+          {/* ── Endowed Progress Stepper (2 steps) ── */}
           <div className="flex items-center gap-2 mb-8">
             {progressSteps.map((step, i) => {
               const isActive = !step.done && (i === 0 || progressSteps[i - 1].done);
@@ -284,16 +275,12 @@ function PracticeSetupModal({
               >
                 {modalStep === "ready"
                   ? sm.titles.ready
-                  : modalStep === "context"
-                  ? sm.titles.context
-                  : sm.titles.interlocutor}
+                  : sm.titles.context}
               </h3>
               <p className="text-[#45556c] text-sm text-center mb-6">
                 {modalStep === "ready"
                   ? sm.subtitles.ready
-                  : modalStep === "context"
-                  ? sm.subtitles.context
-                  : sm.subtitles.interlocutor}
+                  : sm.subtitles.context}
               </p>
             </motion.div>
           </AnimatePresence>
@@ -302,102 +289,6 @@ function PracticeSetupModal({
         {/* ── Step content — single AnimatePresence for all steps ── */}
         <SmoothHeight>
           <AnimatePresence mode="wait" initial={false}>
-            {modalStep === "interlocutor" && (
-              <motion.div
-                key="step-interlocutor"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
-              >
-                <div className="px-12 pb-8">
-                  <div className="flex flex-col items-center gap-3">
-                    {/* First row — 2 pills */}
-                    <div className="flex flex-wrap justify-center gap-3">
-                      {interlocutors.slice(0, 2).map((item) => {
-                        const isSelected = selectedInterlocutor === item.id;
-                        const Icon = item.icon;
-                        return (
-                          <motion.button
-                            key={item.id}
-                            onClick={() => {
-                              setSelectedInterlocutor(item.id);
-                              setInterlocutorOverridden(true);
-                            }}
-                            className={`inline-flex items-center gap-2.5 rounded-full px-5 py-3 text-sm border-2 transition-all duration-200 ${
-                              isSelected
-                                ? "border-[#0f172b] bg-[#0f172b] text-white"
-                                : "border-[#e2e8f0] bg-white text-[#314158] hover:border-[#cad5e2]"
-                            }`}
-                            style={{ fontWeight: 500 }}
-                            whileTap={{ scale: 0.97 }}
-                          >
-                            <Icon className="w-4 h-4" strokeWidth={1.5} />
-                            {item.label}
-                            <span className={`text-[13px] ${isSelected ? "text-white/70" : "text-[#4b5563]"}`}>{item.sublabel}</span>
-                          </motion.button>
-                        );
-                      })}
-                    </div>
-                    {/* Second row — 2 pills centered */}
-                    <div className="flex flex-wrap justify-center gap-3">
-                      {interlocutors.slice(2).map((item) => {
-                        const isSelected = selectedInterlocutor === item.id;
-                        const Icon = item.icon;
-                        return (
-                          <motion.button
-                            key={item.id}
-                            onClick={() => {
-                              setSelectedInterlocutor(item.id);
-                              setInterlocutorOverridden(true);
-                            }}
-                            className={`inline-flex items-center gap-2.5 rounded-full px-5 py-3 text-sm border-2 transition-all duration-200 ${
-                              isSelected
-                                ? "border-[#0f172b] bg-[#0f172b] text-white"
-                                : "border-[#e2e8f0] bg-white text-[#314158] hover:border-[#cad5e2]"
-                            }`}
-                            style={{ fontWeight: 500 }}
-                            whileTap={{ scale: 0.97 }}
-                          >
-                            <Icon className="w-4 h-4" strokeWidth={1.5} />
-                            {item.label}
-                            <span className={`text-[13px] ${isSelected ? "text-white/70" : "text-[#4b5563]"}`}>{item.sublabel}</span>
-                          </motion.button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {!interlocutorOverridden && selectedInterlocutor && (
-                    <p className="text-[13px] text-[#4b5563] mt-5 mb-4 italic text-center">
-                      {sm.autoSelected}
-                    </p>
-                  )}
-
-                  {/* Next button — visible when an interlocutor is selected */}
-                  <AnimatePresence>
-                    {selectedInterlocutor && (
-                      <motion.div
-                        className="mt-8"
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 6 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <button
-                          className="w-full py-3.5 rounded-full flex items-center justify-center gap-2.5 transition-all shadow-lg bg-[#2d2d2d] text-white hover:bg-[#1a1a1a]"
-                          style={{ fontWeight: 500 }}
-                          onClick={() => setModalStep("context")}
-                        >
-                          {sm.next}
-                          <ArrowRight className="w-4 h-4" />
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </motion.div>
-            )}
-
             {modalStep === "context" && (
               <motion.div
                 key="step-context"
@@ -406,9 +297,35 @@ function PracticeSetupModal({
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
               >
-                {/* ── Guided Fields (2 only) ── */}
-                {selectedScenario && (
-                  <div className="px-12 pb-8">
+                <div className="px-6 sm:px-12 pb-8">
+                  {/* ── Scenario type toggle (Interview | Sales) ── */}
+                  <div className="flex justify-center mb-6">
+                    <div className="inline-flex rounded-full bg-[#f1f5f9] p-1 gap-1">
+                      {SCENARIO_TYPES.map((tab) => {
+                        const isActive = selectedScenario === tab.id;
+                        const TabIcon = tab.icon;
+                        const tabLabel = sm.scenarioLabels[tab.id as "sales" | "interview"] ?? tab.label;
+                        return (
+                          <button
+                            key={tab.id}
+                            onClick={() => handleScenarioChange(tab.id)}
+                            className={`relative inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm transition-all duration-200 ${
+                              isActive
+                                ? "bg-white text-[#0f172b] shadow-sm"
+                                : "text-[#62748e] hover:text-[#314158]"
+                            }`}
+                            style={{ fontWeight: isActive ? 600 : 400, textTransform: "capitalize" }}
+                          >
+                            <TabIcon className="w-3.5 h-3.5" strokeWidth={1.5} />
+                            {tabLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* ── Guided Fields (2 only) ── */}
+                  {selectedScenario && (
                     <div className="space-y-6">
                       {currentFields.map((field, i) => (
                         <motion.div
@@ -438,8 +355,8 @@ function PracticeSetupModal({
                         </motion.div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* ── Next button ── */}
                 <div className="px-12 pb-10 pt-4">
@@ -464,18 +381,6 @@ function PracticeSetupModal({
                   >
                     {sm.next}
                     <ArrowRight className="w-4 h-4" />
-                  </button>
-
-                  {/* Back button */}
-                  <button
-                    className="w-full mt-4 py-2.5 text-sm text-[#62748e] hover:text-[#0f172b] flex items-center justify-center gap-1.5 transition-colors"
-                    style={{ fontWeight: 500 }}
-                    onClick={() => {
-                      setModalStep("interlocutor");
-                    }}
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    {sm.back}
                   </button>
                 </div>
               </motion.div>
@@ -557,6 +462,16 @@ function PracticeSetupModal({
                   <p className="text-center text-sm text-[#4b5563] mt-7">
                     {sm.trustLine}
                   </p>
+
+                  {/* Back button */}
+                  <button
+                    className="w-full mt-4 py-2.5 text-sm text-[#62748e] hover:text-[#0f172b] flex items-center justify-center gap-1.5 transition-colors"
+                    style={{ fontWeight: 500 }}
+                    onClick={() => setModalStep("context")}
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    {sm.back}
+                  </button>
                 </div>
               </motion.div>
             )}

@@ -21,7 +21,6 @@ const MOCK_USER: User = {
   plan: "free",
   freeSessionUsed: false,
   sessionsCompleted: 0,
-  marketFocus: "mexico",
   createdAt: "2026-02-10T08:00:00Z",
 };
 

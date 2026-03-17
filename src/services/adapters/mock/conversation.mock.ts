@@ -23,6 +23,7 @@ import { delay, mockId, shouldSimulateError } from "./utils";
 import {
   assembleSystemPrompt,
   getVoiceId,
+  DEFAULT_INTERLOCUTOR,
   type InterlocutorType,
 } from "../../prompts";
 
@@ -47,16 +48,14 @@ export class MockConversationService implements IConversationService {
     const firstMessage = { ...scenarioChatMessages[0] };
 
     // Use real prompt assembler (same logic as production Edge Function)
-    const interlocutor = (config.interlocutor || "client") as InterlocutorType;
+    const interlocutor = (config.interlocutor || DEFAULT_INTERLOCUTOR[config.scenarioType ?? "interview"]) as InterlocutorType;
     const { systemPrompt, voiceId, subProfile, estimatedTokens } =
       assembleSystemPrompt({
         interlocutor,
         scenario: config.scenario,
-        marketFocus: undefined, // Mock doesn't have user profile yet
         extractedContext: config.context,
         includeFirstMessage: true,
         scenarioType: config.scenarioType,
-        strategyPillars: config.strategyPillars,
       });
 
     // Update first message label to match interlocutor
